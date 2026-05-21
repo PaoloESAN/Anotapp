@@ -34,6 +34,14 @@
 
     let cardHeight = $state(0);
     let cardWidth = $state(0);
+
+    function focusAndSelectEnd(node: HTMLTextAreaElement) {
+        setTimeout(() => {
+            node.focus();
+            const length = node.value.length;
+            node.setSelectionRange(length, length);
+        }, 100);
+    }
 </script>
 
 <div
@@ -264,11 +272,10 @@
         >
             {#if item.type === "text"}
                 {#if item.editing}
-                    <!-- svelte-ignore a11y_autofocus -->
                     <textarea
+                        use:focusAndSelectEnd
                         bind:value={item.content}
                         placeholder="Escribe aquí..."
-                        autofocus
                         onpointerdown={(e) => e.stopPropagation()}
                         onblur={() => {
                             item.editing = false;
@@ -285,7 +292,8 @@
                                     item.content,
                                 );
                             }
-                            if (e.key === "Enter" && e.ctrlKey) {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault(); // Evitar el salto de línea por defecto
                                 item.editing = false;
                                 desktopState.updateItemContent(
                                     item.id,

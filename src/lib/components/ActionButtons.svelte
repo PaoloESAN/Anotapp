@@ -97,6 +97,7 @@
             {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content
+            onCloseAutoFocus={(e) => e.preventDefault()}
             align="start"
             side="right"
             class="mb-2 ml-2 min-w-[160px] rounded-xl border-border/50 bg-background/95 backdrop-blur-lg shadow-2xl"

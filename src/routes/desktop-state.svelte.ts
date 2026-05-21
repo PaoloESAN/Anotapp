@@ -207,7 +207,7 @@ class DesktopState {
             w,
             h,
         };
-        this.items.push(newItem);
+        this.items = [...this.items, newItem];
 
         if (!fromPeer || this.hostConnection === null) {
             this.broadcastToClients({ type: "add-item", item: newItem });
@@ -224,9 +224,9 @@ class DesktopState {
             z: this.maxZ++,
             w: 280,
             h: 150,
-            editing: false,
+            editing: true,
         };
-        this.items.push(newItem);
+        this.items = [...this.items, newItem];
         this.broadcastToClients({ type: "add-item", item: newItem });
     }
 
@@ -298,7 +298,7 @@ class DesktopState {
             w: 240,
             h: 120,
         };
-        this.items.push(newItem);
+        this.items = [...this.items, newItem];
         this.broadcastToClients({ type: "add-item", item: newItem });
     }
 
@@ -555,7 +555,7 @@ class DesktopState {
 
         if (data.type === "add-item" && data.item) {
             if (!this.items.find((i) => i.id === data.item.id)) {
-                this.items.push(data.item);
+                this.items = [...this.items, data.item];
                 if (data.item.z >= this.maxZ) {
                     this.maxZ = data.item.z + 1;
                 }
