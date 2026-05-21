@@ -135,16 +135,7 @@ class DesktopState {
             return () => clearTimeout(timer);
         });
 
-        $effect(() => {
-            const activeWS = this.activeWorkspaceId;
-            if (this.peerInstance && this.hostConnection === null) {
-                // Sincronizar el estado de la nueva mesa con todos los clientes
-                this.broadcastToClients({
-                    type: "sync-state",
-                    items: this.items
-                });
-            }
-        });
+
 
         if (typeof window !== "undefined") {
             const handleKeyDown = (e: KeyboardEvent) => {
@@ -380,16 +371,27 @@ class DesktopState {
         }
     }
 
+    findItemAcrossWorkspaces(id: string) {
+        for (const ws of this.workspaces) {
+            const item = ws.items.find(i => i.id === id);
+            if (item) return { item, workspace: ws };
+        }
+        return null;
+    }
+
     deleteItem(id: string, fromPeer = false) {
-        this.items = this.items.filter((i) => i.id !== id);
+        for (const ws of this.workspaces) {
+            ws.items = ws.items.filter((i) => i.id !== id);
+        }
         if (!fromPeer) {
             this.broadcastToClients({ type: "delete", id });
         }
     }
 
     updateItemBounds(id: string, x: number, y: number, w: number | undefined, h: number | undefined, z: number | undefined, fromPeer = false) {
-        const item = this.items.find((i) => i.id === id);
-        if (item) {
+        const found = this.findItemAcrossWorkspaces(id);
+        if (found) {
+            const { item } = found;
             if (x !== undefined) item.x = x;
             if (y !== undefined) item.y = y;
             if (w !== undefined) item.w = w;
@@ -402,9 +404,9 @@ class DesktopState {
     }
 
     updateItemContent(id: string, content: string, fromPeer = false) {
-        const item = this.items.find((i) => i.id === id);
-        if (item && item.type === "text") {
-            item.content = content;
+        const found = this.findItemAcrossWorkspaces(id);
+        if (found && found.item.type === "text") {
+            found.item.content = content;
         }
         if (!fromPeer) {
             this.broadcastToClients({ type: "update-content", id, content });
@@ -554,7 +556,8 @@ class DesktopState {
         }
 
         if (data.type === "add-item" && data.item) {
-            if (!this.items.find((i) => i.id === data.item.id)) {
+            const found = this.findItemAcrossWorkspaces(data.item.id);
+            if (!found) {
                 this.items = [...this.items, data.item];
                 if (data.item.z >= this.maxZ) {
                     this.maxZ = data.item.z + 1;
