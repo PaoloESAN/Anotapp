@@ -102,35 +102,30 @@
         try {
             const { Peer } = await import("peerjs");
 
-            const generateShortId = () => {
-                const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                let result = "";
-                for (let i = 0; i < 6; i++) {
-                    result += chars.charAt(
-                        Math.floor(Math.random() * chars.length),
-                    );
-                }
-                return result;
-            };
-
             const initPeer = () => {
-                const id = generateShortId();
-                desktopState.peerInstance = new Peer(id);
+                // Dejar que PeerJS genere el UUID seguro largo
+                desktopState.peerInstance = new Peer();
 
-                desktopState.peerInstance.on("open", (id: string) => {
-                    desktopState.peerId = id;
+                desktopState.peerInstance.on("open", async (uuid: string) => {
+                    try {
+                        const shortCode = await desktopState.registerPeerMapping(uuid);
+                        desktopState.peerId = shortCode;
+                    } catch (e) {
+                        console.error("Error al registrar código de vinculación:", e);
+                        desktopState.peerId = "ERROR";
+                    }
                 });
 
                 desktopState.peerInstance.on(
                     "connection",
                     (conn: DataConnection) => {
-                        // Limitar a 3 dispositivos máximo (sin contar esta PC)
-                        if (desktopState.clientConnections.length >= 3) {
+                        // Limitar a 10 dispositivos máximo (sin contar esta PC)
+                        if (desktopState.clientConnections.length >= 10) {
                             conn.on("open", () => {
                                 conn.send({
                                     type: "error",
                                     message:
-                                        "Límite de dispositivos alcanzado (3 max).",
+                                        "Límite de dispositivos alcanzado (10 max).",
                                 });
                                 setTimeout(() => conn.close(), 500);
                             });
@@ -149,7 +144,7 @@
                         });
 
                         conn.on("data", (data: any) => {
-                            desktopState.handleIncomingPeerData(data);
+                            desktopState.handleIncomingPeerData(data, conn);
                         });
 
                         conn.on("close", () => {
@@ -169,11 +164,7 @@
                 );
 
                 desktopState.peerInstance.on("error", (err: any) => {
-                    if (err.type === "unavailable-id") {
-                        console.warn("ID en uso, regenerando...");
-                        desktopState.peerInstance?.destroy();
-                        setTimeout(initPeer, 500);
-                    }
+                    console.error("PeerJS error:", err);
                 });
             };
 
@@ -240,7 +231,7 @@
             Conectado a:
             <span
                 class="font-mono tracking-widest text-green-700 dark:text-green-300"
-                >{desktopState.hostConnection.peer}</span
+                >{desktopState.connectedHostCode}</span
             >
         </div>
     {/if}
@@ -287,7 +278,7 @@
 
     <MobileLinkModal
         bind:open={desktopState.isMobileLinkOpen}
-        peerId={desktopState.peerId}
+        peerId={desktopState.hostConnection ? desktopState.connectedHostCode : desktopState.peerId}
     />
 
     <CardContextMenu {onCopy} {onDelete} {onScanText} />

@@ -1,4 +1,7 @@
 import { type DataConnection } from "peerjs";
+import { PUBLIC_FIREBASE_DB_URL } from "$env/static/public";
+
+const FIREBASE_DB_URL = PUBLIC_FIREBASE_DB_URL;
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error" | "reconnecting";
 
@@ -60,13 +63,15 @@ class MobileState {
     }
 
     savePeerId(id: string) {
+        const upperId = id.trim().toUpperCase();
         if (typeof window !== "undefined") {
             const url = new URL(window.location.href);
-            url.searchParams.set("peerId", id);
+            url.searchParams.set("peerId", upperId);
             window.history.replaceState({}, "", url);
-            sessionStorage.setItem("anotapp_peerId", id);
+            sessionStorage.setItem("anotapp_peerId", upperId);
         }
-        this.peerId = id;
+        this.peerId = upperId;
+        this.inputCode = upperId;
     }
 
     async initConnection(id: string, isAutoReconnect = false) {
@@ -74,6 +79,18 @@ class MobileState {
         this.status = isAutoReconnect ? "reconnecting" : "connecting";
 
         try {
+            // Resolver el código de 6 dígitos a través de Firebase
+            const code = id.trim().toUpperCase();
+            const res = await fetch(`${FIREBASE_DB_URL}/mappings/${code}.json`);
+            const data = await res.json();
+            if (!data || !data.peerId) {
+                this.status = "error";
+                alert("Código de vinculación inválido o expirado.");
+                return;
+            }
+
+            const hostUuid = data.peerId;
+
             const { Peer } = await import("peerjs");
             if (this.peerInstance) {
                 this.peerInstance.destroy();
@@ -82,12 +99,26 @@ class MobileState {
             this.peerInstance = new Peer();
 
             this.peerInstance.on("open", () => {
-                const conn = this.peerInstance.connect(id, { reliable: true });
+                const conn = this.peerInstance.connect(hostUuid, { reliable: true });
                 this.connection = conn;
 
                 conn.on("open", () => {
                     this.status = "connected";
                     this.sendPendingFiles();
+
+                    // Enviar identificación de dispositivo
+                    conn.send({
+                        type: "handshake",
+                        shortCode: "Móvil",
+                        deviceType: "Móvil"
+                    });
+                });
+
+                conn.on("data", (data: any) => {
+                    if (data && data.type === "error" && data.message) {
+                        alert(data.message);
+                        this.disconnect();
+                    }
                 });
 
                 conn.on("error", (err: any) => {
@@ -118,7 +149,7 @@ class MobileState {
                 }
             });
         } catch (err) {
-            console.error("Failed to load PeerJS:", err);
+            console.error("Failed to load PeerJS or resolve mapping:", err);
             this.status = "error";
         }
     }

@@ -1,6 +1,9 @@
 import { type ClipboardItem } from "$lib/types";
 import { createWorker } from "tesseract.js";
 import type { DataConnection } from "peerjs";
+import { PUBLIC_FIREBASE_DB_URL } from "$env/static/public";
+
+const FIREBASE_DB_URL = PUBLIC_FIREBASE_DB_URL;
 
 export interface Workspace {
     id: string;
@@ -63,6 +66,7 @@ class DesktopState {
     isMobileLinkOpen = $state(false);
 
     hostConnection = $state<DataConnection | null>(null);
+    connectedHostCode = $state("");
     clientConnections = $state<DataConnection[]>([]);
 
     hostedFiles = new Map<string, File>();
@@ -131,6 +135,17 @@ class DesktopState {
             return () => clearTimeout(timer);
         });
 
+        $effect(() => {
+            const activeWS = this.activeWorkspaceId;
+            if (this.peerInstance && this.hostConnection === null) {
+                // Sincronizar el estado de la nueva mesa con todos los clientes
+                this.broadcastToClients({
+                    type: "sync-state",
+                    items: this.items
+                });
+            }
+        });
+
         if (typeof window !== "undefined") {
             const handleKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'Control' || e.key === 'Meta') this.isCtrlPressed = true;
@@ -194,7 +209,7 @@ class DesktopState {
         };
         this.items.push(newItem);
 
-        if (!fromPeer) {
+        if (!fromPeer || this.hostConnection === null) {
             this.broadcastToClients({ type: "add-item", item: newItem });
         }
     }
@@ -396,34 +411,94 @@ class DesktopState {
         }
     }
 
-    connectToHost(hostId: string) {
-        if (!this.peerInstance) return;
+    async registerPeerMapping(uuid: string): Promise<string> {
+        const generateShortId = () => {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+            let result = "";
+            for (let i = 0; i < 6; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        };
 
-        const conn = this.peerInstance.connect(hostId);
-
-        conn.on("open", () => {
-            this.hostConnection = conn;
-            this.isMobileLinkOpen = false;
-        });
-
-        conn.on("data", (data: any) => {
-            this.handleIncomingPeerData(data);
-        });
-
-        conn.on("close", () => {
-            this.hostConnection = null;
-        });
-
-        conn.on("error", (err: any) => {
-            console.error("Connection error:", err);
-            this.hostConnection = null;
-        });
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const shortId = generateShortId();
+            try {
+                const checkRes = await fetch(`${FIREBASE_DB_URL}/mappings/${shortId}.json`);
+                const data = await checkRes.json();
+                
+                // Si no existe el mapeo, o está expirado (más de 2 horas)
+                if (!data || !data.createdAt || Date.now() - data.createdAt > 7200000) {
+                    await fetch(`${FIREBASE_DB_URL}/mappings/${shortId}.json`, {
+                        method: "PUT",
+                        body: JSON.stringify({
+                            peerId: uuid,
+                            createdAt: Date.now()
+                        })
+                    });
+                    return shortId;
+                }
+            } catch (e) {
+                console.error("Error al registrar en Firebase:", e);
+            }
+        }
+        throw new Error("No se pudo generar un código único en Firebase.");
     }
 
-    broadcastToClients(data: any) {
-        // Enviar a todos los clientes conectados si somos el anfitrión
+    async connectToHost(shortCode: string) {
+        if (!this.peerInstance) return;
+
+        const code = shortCode.trim().toUpperCase();
+        try {
+            const res = await fetch(`${FIREBASE_DB_URL}/mappings/${code}.json`);
+            const data = await res.json();
+            if (!data || !data.peerId) {
+                alert("Código de vinculación inválido o expirado.");
+                return;
+            }
+
+            const hostUuid = data.peerId;
+            const conn = this.peerInstance.connect(hostUuid);
+
+            conn.on("open", () => {
+                this.hostConnection = conn;
+                this.connectedHostCode = code;
+                this.isMobileLinkOpen = false;
+
+                // Enviar nuestro código corto al Host para que nos identifique con él
+                conn.send({
+                    type: "handshake",
+                    shortCode: this.peerId,
+                    deviceType: "PC"
+                });
+            });
+
+            conn.on("data", (data: any) => {
+                this.handleIncomingPeerData(data, conn);
+            });
+
+            conn.on("close", () => {
+                this.hostConnection = null;
+                this.connectedHostCode = "";
+            });
+
+            conn.on("error", (err: any) => {
+                console.error("Connection error:", err);
+                this.hostConnection = null;
+                this.connectedHostCode = "";
+            });
+        } catch (err) {
+            console.error("Firebase fetch error:", err);
+            alert("Error de conexión al buscar el código en el servidor.");
+        }
+    }
+
+    broadcastToClients(data: any, skipPeerId?: string) {
+        // Enviar a todos los clientes conectados si somos el anfitrión (saltándose el emisor original si aplica)
         this.clientConnections.forEach(conn => {
-            if (conn.open) conn.send(data);
+            if (conn.open && (!skipPeerId || conn.peer !== skipPeerId)) {
+                conn.send(data);
+            }
         });
         // Si somos un cliente, enviarlo al anfitrión para que lo distribuya
         if (this.hostConnection && this.hostConnection.open) {
@@ -431,8 +506,23 @@ class DesktopState {
         }
     }
 
-    async handleIncomingPeerData(data: any) {
+    async handleIncomingPeerData(data: any, conn?: DataConnection) {
         if (!data || !data.type) return;
+
+        if (data.type === "error" && data.message) {
+            alert(data.message);
+            return;
+        }
+
+        if (data.type === "handshake") {
+            if (conn) {
+                (conn as any).shortCode = data.shortCode || "Dispositivo";
+                (conn as any).deviceType = data.deviceType || "Desconocido";
+                // Disparar reactividad reasignando la lista de conexiones
+                this.clientConnections = [...this.clientConnections];
+            }
+            return;
+        }
 
         if (data.type === "sync-state" && data.items) {
             this.items = data.items;
@@ -441,16 +531,25 @@ class DesktopState {
 
         if (data.type === "delete" && data.id) {
             this.deleteItem(data.id, true);
+            if (this.hostConnection === null) {
+                this.broadcastToClients(data, conn?.peer);
+            }
             return;
         }
 
         if (data.type === "update-bounds" && data.id) {
             this.updateItemBounds(data.id, data.x, data.y, data.w, data.h, data.z, true);
+            if (this.hostConnection === null) {
+                this.broadcastToClients(data, conn?.peer);
+            }
             return;
         }
 
         if (data.type === "update-content" && data.id) {
             this.updateItemContent(data.id, data.content, true);
+            if (this.hostConnection === null) {
+                this.broadcastToClients(data, conn?.peer);
+            }
             return;
         }
 
@@ -460,6 +559,9 @@ class DesktopState {
                 if (data.item.z >= this.maxZ) {
                     this.maxZ = data.item.z + 1;
                 }
+            }
+            if (this.hostConnection === null) {
+                this.broadcastToClients(data, conn?.peer);
             }
             return;
         }
@@ -477,7 +579,7 @@ class DesktopState {
                     });
                 });
             } else if (this.hostConnection === null) {
-                this.broadcastToClients(data); // Reenviar a clientes
+                this.broadcastToClients(data, conn?.peer); // Reenviar a clientes
             }
             return;
         }
@@ -489,7 +591,7 @@ class DesktopState {
                 this.triggerDownload(blob, data.name);
             }
             if (this.hostConnection === null) {
-                this.broadcastToClients(data); // Reenviar a clientes
+                this.broadcastToClients(data, conn?.peer); // Reenviar a clientes
             }
             return;
         }

@@ -99,7 +99,7 @@
                             ></div>
                             <span
                                 class="text-sm font-mono font-bold tracking-widest"
-                                >{desktopState.hostConnection.peer}
+                                >{desktopState.connectedHostCode}
                                 <span
                                     class="text-xs text-muted-foreground font-sans tracking-normal font-normal"
                                     >(Anfitrión)</span
@@ -175,7 +175,7 @@
                             </h4>
                             <p class="text-xs text-muted-foreground mt-1">
                                 Comparte este ID para que otros PCs se conecten
-                                a tu lienzo. Límite sugerido: 3 dispositivos.
+                                a tu lienzo. Límite sugerido: 10 dispositivos.
                             </p>
                         </div>
                         <div class="flex items-center gap-2">
@@ -268,7 +268,7 @@
                                             ></div>
                                             <span
                                                 class="text-sm font-mono font-bold tracking-widest"
-                                                >{conn.peer}</span
+                                                >{(conn as any).shortCode || conn.peer}</span
                                             >
                                         </div>
                                         <Button
