@@ -35,11 +35,11 @@
     let cardHeight = $state(0);
     let cardWidth = $state(0);
 
-    function focusAndSelectEnd(node: HTMLTextAreaElement) {
+    function focusAndSelectStart(node: HTMLTextAreaElement) {
         setTimeout(() => {
             node.focus();
-            const length = node.value.length;
-            node.setSelectionRange(length, length);
+            node.setSelectionRange(0, 0);
+            node.scrollTop = 0;
         }, 100);
     }
 </script>
@@ -273,7 +273,7 @@
             {#if item.type === "text"}
                 {#if item.editing}
                     <textarea
-                        use:focusAndSelectEnd
+                        use:focusAndSelectStart
                         bind:value={item.content}
                         placeholder="Escribe aquí..."
                         onpointerdown={(e) => e.stopPropagation()}
