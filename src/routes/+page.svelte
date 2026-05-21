@@ -212,6 +212,10 @@
     }
 </script>
 
+<svelte:head>
+    <title>Anotapp</title>
+</svelte:head>
+
 <svelte:window
     onpointermove={(e) => interactionManager.onPointerMove(e)}
     onpointerup={(e) => interactionManager.onPointerUp(e)}

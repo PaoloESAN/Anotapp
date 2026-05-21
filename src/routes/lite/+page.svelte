@@ -76,10 +76,14 @@
 
                 desktopState.peerInstance.on("open", async (uuid: string) => {
                     try {
-                        const shortCode = await desktopState.registerPeerMapping(uuid);
+                        const shortCode =
+                            await desktopState.registerPeerMapping(uuid);
                         desktopState.peerId = shortCode;
                     } catch (e) {
-                        console.error("Error al registrar código de vinculación:", e);
+                        console.error(
+                            "Error al registrar código de vinculación:",
+                            e,
+                        );
                         desktopState.peerId = "ERROR";
                     }
                 });
@@ -165,6 +169,10 @@
     }
 </script>
 
+<svelte:head>
+    <title>Anotapp Web Lite</title>
+</svelte:head>
+
 <svelte:window
     onpointermove={(e) => interactionManager.onPointerMove(e)}
     onpointerup={(e) => interactionManager.onPointerUp(e)}
@@ -175,6 +183,13 @@
     class="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 relative font-sans isolate selection:bg-primary/30 transition-colors duration-500"
 >
     <CanvasBackground />
+
+    <!-- App Title / Logo -->
+    <div
+        class="fixed top-0 left-0 h-12 flex items-center px-4 z-99 text-slate-700 dark:text-zinc-200 font-semibold tracking-tight text-lg drop-shadow-md pointer-events-none select-none"
+    >
+        <span>Anotapp</span>
+    </div>
 
     {#if desktopState.hostConnection}
         <div
@@ -231,7 +246,9 @@
 
     <MobileLinkModal
         bind:open={desktopState.isMobileLinkOpen}
-        peerId={desktopState.hostConnection ? desktopState.connectedHostCode : desktopState.peerId}
+        peerId={desktopState.hostConnection
+            ? desktopState.connectedHostCode
+            : desktopState.peerId}
     />
 
     <CardContextMenu {onCopy} {onDelete} {onScanText} />
