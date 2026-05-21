@@ -198,11 +198,13 @@
                 );
                 const b64 = item.content.replace(/^data:[^;]+;base64,/, "");
                 await writeImageBase64(b64);
+                desktopState.lastImageB64Len = b64.length;
             } else if (item.type === "files" && item.files?.length) {
                 const { writeFilesURIs } = await import(
                     "tauri-plugin-clipboard-api"
                 );
                 await writeFilesURIs(item.files);
+                desktopState.lastFilesKey = [...item.files].sort().join("|");
             }
         } catch (err) {
             console.log(err);

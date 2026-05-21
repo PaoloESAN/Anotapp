@@ -33,6 +33,7 @@ class DesktopState {
     maxZ = $state(1);
     lastText = $state("");
     lastImageB64Len = $state(0);
+    lastFilesKey = $state("");
     isReady = $state(false);
     clipboardPaused = $state(false);
     hideHeaders = $state(true);
@@ -261,6 +262,7 @@ class DesktopState {
     handleFilesUpdate(files: string[]) {
         if (!files || files.length === 0) return;
         const key = [...files].sort().join("|");
+        this.lastFilesKey = key;
         if (this.items.find((i) => i.type === "files" && [...(i.files ?? [])].sort().join("|") === key))
             return;
 
@@ -380,6 +382,39 @@ class DesktopState {
     }
 
     deleteItem(id: string, fromPeer = false) {
+        const found = this.findItemAcrossWorkspaces(id);
+        if (found) {
+            const { item } = found;
+            if (item.type === "text" && item.content === this.lastText) {
+                this.lastText = "";
+                if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+                    import("tauri-plugin-clipboard-api")
+                        .then(({ clear }) => clear())
+                        .catch((err) => console.error("Error clearing clipboard:", err));
+                }
+            } else if (item.type === "image") {
+                const b64 = item.content.replace(/^data:[^;]+;base64,/, "");
+                if (b64.length === this.lastImageB64Len) {
+                    this.lastImageB64Len = 0;
+                    if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+                        import("tauri-plugin-clipboard-api")
+                            .then(({ clear }) => clear())
+                            .catch((err) => console.error("Error clearing clipboard:", err));
+                    }
+                }
+            } else if (item.type === "files") {
+                const key = [...(item.files ?? [])].sort().join("|");
+                if (key === this.lastFilesKey) {
+                    this.lastFilesKey = "";
+                    if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+                        import("tauri-plugin-clipboard-api")
+                            .then(({ clear }) => clear())
+                            .catch((err) => console.error("Error clearing clipboard:", err));
+                    }
+                }
+            }
+        }
+
         for (const ws of this.workspaces) {
             ws.items = ws.items.filter((i) => i.id !== id);
         }
