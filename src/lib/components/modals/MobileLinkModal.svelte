@@ -9,6 +9,7 @@
     import { desktopState } from "../../../routes/desktop-state.svelte";
     import { Input } from "$lib/components/ui/input/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
+    import { PUBLIC_MOBILE_URL } from "$env/static/public";
 
     let {
         open = $bindable(false),
@@ -20,7 +21,7 @@
     let copied = $state(false);
     let targetPeerId = $state("");
 
-    const baseUrl = "https://anotapp-mobile.vercel.app/mobile";
+    const baseUrl = PUBLIC_MOBILE_URL;
 
     $effect(() => {
         const activeCanvas = desktopState.hostConnection ? canvasConnected : canvasStandalone;
