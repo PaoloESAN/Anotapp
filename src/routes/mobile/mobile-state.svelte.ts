@@ -12,8 +12,9 @@ class MobileState {
     connection = $state<DataConnection | null>(null);
     textInput = $state("");
     inputCode = $state("");
-    pendingFiles = $state<{ type: string; content: string }[]>([]);
+    pendingFiles = $state<any[]>([]);
     isUploading = $state(false);
+    hostedFiles = new Map<string, File>();
 
     constructor() {
         if (typeof sessionStorage !== "undefined") {
@@ -118,6 +119,20 @@ class MobileState {
                     if (data && data.type === "error" && data.message) {
                         alert(data.message);
                         this.disconnect();
+                    }
+                    if (data && data.type === "request-file-data" && data.fileId) {
+                        const file = this.hostedFiles.get(data.fileId);
+                        if (file) {
+                            file.arrayBuffer().then(buffer => {
+                                conn.send({
+                                    type: "file-data",
+                                    fileId: data.fileId,
+                                    data: buffer,
+                                    name: file.name,
+                                    mimeType: file.type
+                                });
+                            });
+                        }
                     }
                 });
 
@@ -227,6 +242,43 @@ class MobileState {
         };
 
         reader.readAsDataURL(file);
+    }
+
+    handleFileUpload(e: Event) {
+        const input = e.target as HTMLInputElement;
+        if (!input.files || input.files.length === 0) return;
+
+        for (let i = 0; i < input.files.length; i++) {
+            const file = input.files[i];
+            const fileId = crypto.randomUUID();
+            this.hostedFiles.set(fileId, file);
+
+            const payload = {
+                type: "add-item",
+                item: {
+                    id: crypto.randomUUID(),
+                    type: "peer-file" as const,
+                    content: "",
+                    fileId,
+                    name: file.name,
+                    size: file.size,
+                    x: 100 + (Math.random() * 150),
+                    y: 100 + (Math.random() * 150),
+                    z: 1,
+                    w: 240,
+                    h: 120,
+                }
+            };
+
+            if (this.connection && this.status === "connected") {
+                this.isUploading = true;
+                this.connection.send(payload);
+                setTimeout(() => this.isUploading = false, 500);
+            } else {
+                this.pendingFiles = [...this.pendingFiles, payload];
+            }
+        }
+        input.value = "";
     }
 }
 

@@ -4,6 +4,7 @@
     import Paperclip from "@lucide/svelte/icons/paperclip";
     import Camera from "@lucide/svelte/icons/camera";
     import ImagePlus from "@lucide/svelte/icons/image-plus";
+    import FileIcon from "@lucide/svelte/icons/file";
     import ArrowUp from "@lucide/svelte/icons/arrow-up";
     import Loader2 from "@lucide/svelte/icons/loader-2";
     import { mobileState } from "../mobile-state.svelte";
@@ -28,9 +29,9 @@
                 <Loader2 class="w-3.5 h-3.5 animate-spin text-primary" />
                 <span class="text-[12px] font-medium text-primary/80">
                     {#if mobileState.isUploading}
-                        Enviando imagen...
+                        Enviando archivo...
                     {:else}
-                        {mobileState.pendingFiles.length} {mobileState.pendingFiles.length === 1 ? 'imagen' : 'imágenes'} esperando conexión...
+                        {mobileState.pendingFiles.length} {mobileState.pendingFiles.length === 1 ? 'archivo' : 'archivos'} esperando conexión...
                     {/if}
                 </span>
             </div>
@@ -70,6 +71,13 @@
                             <ImagePlus class="h-4 w-4 text-muted-foreground" />
                             <span>Subir de Galería</span>
                         </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                            onclick={() => document.getElementById("mobile-file-upload")?.click()}
+                            class="cursor-pointer gap-2 py-2.5"
+                        >
+                            <FileIcon class="h-4 w-4 text-muted-foreground" />
+                            <span>Subir Archivo</span>
+                        </DropdownMenu.Item>
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
             </div>
@@ -97,6 +105,13 @@
             accept="image/*"
             class="hidden"
             onchange={(e) => mobileState.handleImageUpload(e)}
+        />
+        <input
+            type="file"
+            id="mobile-file-upload"
+            multiple
+            class="hidden"
+            onchange={(e) => mobileState.handleFileUpload(e)}
         />
     </div>
 </div>
