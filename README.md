@@ -12,6 +12,9 @@
   <a href="https://github.com/PaoloESAN/anotapp/releases/latest/download/Anotapp.exe">
     <img src="https://img.shields.io/badge/Download-Windows-blue?style=for-the-badge" alt="Download Anotapp" />
   </a>
+  <a href="https://anotapp-mobile.vercel.app/lite">
+    <img src="https://img.shields.io/badge/Versi%C3%B3n_lite-WEB-orange?style=for-the-badge" alt="Anotapp Lite" />
+  </a>
 </p>
 
 ---
@@ -19,6 +22,8 @@
 ## Descripción
 
 Anotapp es una herramienta que captura automáticamente el historial del portapapeles y los presenta como tarjetas interactivas en un lienzo infinito. Permite organizar extractos de texto, imágenes y archivos de forma visual a través de múltiples mesas de trabajo, conectando tus dispositivos móviles y de escritorio para una experiencia fluida.
+
+Además, cuenta con una **Versión Web Lite** accesible desde cualquier navegador. Esta versión permite interactuar con el lienzo, crear notas manuales y sincronizarse con otros dispositivos de forma bidireccional a través de conexión P2P rápida sin necesidad de instalar la aplicación de escritorio y sin capturar automáticamente el portapapeles local.
 
 ## Capturas de pantalla
 
@@ -53,7 +58,7 @@ Para ejecutar este proyecto de forma local, **asegúrate de tener instalado Rust
 
 1. Clonar el repositorio:
 ```bash
-git clone https://github.com/tu-usuario/anotapp.git
+git clone https://github.com/PaoloESAN/Anotapp.git
 ```
 
 2. Instalar las dependencias (el proyecto usa pnpm):
