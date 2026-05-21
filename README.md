@@ -12,7 +12,7 @@
   <a href="https://github.com/PaoloESAN/anotapp/releases/latest/download/Anotapp.exe">
     <img src="https://img.shields.io/badge/Download-Windows-blue?style=for-the-badge" alt="Download Anotapp" />
   </a>
-  <a href="https://anotapp-mobile.vercel.app/lite">
+  <a href="https://anotapp-web.vercel.app/lite">
     <img src="https://img.shields.io/badge/Versi%C3%B3n_lite-WEB-orange?style=for-the-badge" alt="Anotapp Lite" />
   </a>
 </p>

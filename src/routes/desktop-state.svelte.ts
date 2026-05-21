@@ -175,6 +175,28 @@ class DesktopState {
         }
     }
 
+    getRandomPosition(w: number, h: number): { x: number; y: number } {
+        if (typeof window === "undefined") {
+            return { x: 100, y: 100 };
+        }
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+
+        const areaW = screenW * 0.8;
+        const areaH = screenH * 0.8;
+
+        const minX = (screenW - areaW) / 2;
+        const minY = (screenH - areaH) / 2;
+
+        const maxX = Math.max(minX, minX + areaW - w);
+        const maxY = Math.max(minY, minY + areaH - h);
+
+        const x = minX + Math.random() * (maxX - minX);
+        const y = minY + Math.random() * (maxY - minY);
+
+        return { x, y };
+    }
+
     addItem({
         type,
         content,
@@ -188,13 +210,19 @@ class DesktopState {
         w?: number;
         h?: number;
     }, fromPeer = false) {
+        const defaultW = type === "text" ? 300 : 200;
+        const defaultH = type === "text" ? 160 : 200;
+        const finalW = w ?? defaultW;
+        const finalH = h ?? defaultH;
+        const pos = this.getRandomPosition(finalW, finalH);
+
         const newItem = {
             id: crypto.randomUUID(),
             type,
             content,
             files,
-            x: window.innerWidth / 2 - 150 + (Math.random() * 100 - 50),
-            y: window.innerHeight / 2 - 150 + (Math.random() * 100 - 50),
+            x: pos.x,
+            y: pos.y,
             z: this.maxZ++,
             w,
             h,
@@ -207,15 +235,18 @@ class DesktopState {
     }
 
     addEmptyText() {
+        const w = 280;
+        const h = 150;
+        const pos = this.getRandomPosition(w, h);
         const newItem = {
             id: crypto.randomUUID(),
             type: "text" as const,
             content: "",
-            x: window.innerWidth / 2 - 140 + (Math.random() * 40 - 20),
-            y: window.innerHeight / 2 - 75 + (Math.random() * 40 - 20),
+            x: pos.x,
+            y: pos.y,
             z: this.maxZ++,
-            w: 280,
-            h: 150,
+            w,
+            h,
             editing: true,
         };
         this.items = [...this.items, newItem];
@@ -278,6 +309,9 @@ class DesktopState {
     }
 
     addPeerFile(fileId: string, name: string, size: number) {
+        const w = 240;
+        const h = 120;
+        const pos = this.getRandomPosition(w, h);
         const newItem = {
             id: crypto.randomUUID(),
             type: "peer-file" as const,
@@ -285,11 +319,11 @@ class DesktopState {
             fileId,
             name,
             size,
-            x: window.innerWidth / 2 - 100 + (Math.random() * 50 - 25),
-            y: window.innerHeight / 2 - 50 + (Math.random() * 50 - 25),
+            x: pos.x,
+            y: pos.y,
             z: this.maxZ++,
-            w: 240,
-            h: 120,
+            w,
+            h,
         };
         this.items = [...this.items, newItem];
         this.broadcastToClients({ type: "add-item", item: newItem });
