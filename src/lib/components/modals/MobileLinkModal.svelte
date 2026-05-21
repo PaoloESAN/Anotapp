@@ -15,17 +15,19 @@
         peerId = "",
     }: { open: boolean; peerId: string } = $props();
 
-    let canvas = $state<HTMLCanvasElement>();
+    let canvasConnected = $state<HTMLCanvasElement>();
+    let canvasStandalone = $state<HTMLCanvasElement>();
     let copied = $state(false);
     let targetPeerId = $state("");
 
     const baseUrl = "https://anotapp-mobile.vercel.app/mobile";
 
     $effect(() => {
-        if (open && canvas && peerId) {
+        const activeCanvas = desktopState.hostConnection ? canvasConnected : canvasStandalone;
+        if (open && activeCanvas && peerId) {
             const url = `${baseUrl}?peerId=${peerId}`;
             QRCode.toCanvas(
-                canvas,
+                activeCanvas,
                 url,
                 {
                     width: 200,
@@ -74,34 +76,24 @@
         </Dialog.Header>
 
         {#if desktopState.hostConnection}
-            <div class="space-y-6">
-                <div class="space-y-3">
-                    <h4 class="text-sm font-semibold text-foreground">
-                        Este PC
-                    </h4>
-                    <div
-                        class="font-mono font-bold tracking-widest text-center bg-muted flex-1 px-4 py-2.5 rounded-full text-sm truncate select-all"
-                    >
-                        {peerId || "Generando ID..."}
-                    </div>
-                </div>
-
-                <div class="pt-4 border-t border-border space-y-3">
+            <div class="space-y-6 flex flex-col items-center">
+                <!-- Conectado a -->
+                <div class="w-full space-y-3">
                     <h4 class="text-sm font-semibold text-foreground">
                         Conectado a:
                     </h4>
                     <div
-                        class="flex items-center justify-between bg-muted/50 p-2.5 rounded-[1rem]"
+                        class="flex items-center justify-between bg-muted/50 p-2.5 rounded-[1.25rem] border border-border/40"
                     >
                         <div class="flex items-center gap-2">
                             <div
-                                class="w-2 h-2 rounded-full bg-green-500"
+                                class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]"
                             ></div>
                             <span
-                                class="text-sm font-mono font-bold tracking-widest"
+                                class="text-sm font-mono font-bold tracking-widest text-foreground"
                                 >{desktopState.connectedHostCode}
                                 <span
-                                    class="text-xs text-muted-foreground font-sans tracking-normal font-normal"
+                                    class="text-xs text-muted-foreground font-sans tracking-normal font-normal ml-1"
                                     >(Anfitrión)</span
                                 ></span
                             >
@@ -120,6 +112,36 @@
                         </Button>
                     </div>
                 </div>
+
+                <div class="w-full border-t border-border/60 my-2"></div>
+
+                <!-- QR code para vincular celular directamente al host -->
+                <div
+                    class="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-zinc-800 flex items-center justify-center animate-in fade-in duration-300"
+                >
+                    <canvas
+                        bind:this={canvasConnected}
+                        class="block max-w-full h-auto rounded-md"
+                    ></canvas>
+                </div>
+
+                {#if peerId}
+                    <div class="text-center w-full">
+                        <p
+                            class="text-xs text-muted-foreground uppercase tracking-wider font-semibold"
+                        >
+                            ID de Conexión Compartida
+                        </p>
+                        <p
+                            class="font-mono bg-muted px-5 py-2.5 rounded-full text-sm mt-1.5 select-all inline-block font-bold tracking-widest text-foreground border border-border/30 animate-in fade-in duration-300"
+                        >
+                            {peerId}
+                        </p>
+                    </div>
+                {/if}
+                <p class="text-xs text-center text-muted-foreground max-w-xs leading-relaxed">
+                    Escanea el código para enviar texto e imágenes desde tu celular directamente al anfitrión de este lienzo.
+                </p>
             </div>
         {:else}
             <Tabs.Root value="mobile" class="w-full">
@@ -137,7 +159,7 @@
                         class="bg-white p-2 rounded-xl shadow-sm border border-slate-200 dark:border-zinc-800 flex items-center justify-center"
                     >
                         <canvas
-                            bind:this={canvas}
+                            bind:this={canvasStandalone}
                             class="block max-w-full h-auto rounded-md"
                         ></canvas>
                     </div>
