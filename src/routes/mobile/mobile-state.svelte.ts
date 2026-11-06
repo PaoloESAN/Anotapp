@@ -1,7 +1,6 @@
 import { type DataConnection } from "peerjs";
-import { PUBLIC_FIREBASE_DB_URL } from "$env/static/public";
 
-const FIREBASE_DB_URL = PUBLIC_FIREBASE_DB_URL;
+const FIREBASE_DB_URL = (import.meta.env.PUBLIC_FIREBASE_DB_URL as string) || "";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error" | "reconnecting";
 

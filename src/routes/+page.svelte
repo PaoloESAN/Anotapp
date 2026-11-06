@@ -19,7 +19,6 @@
     import CanvasBackground from "$lib/components/CanvasBackground.svelte";
     import WorkspacesBar from "$lib/components/WorkspacesBar.svelte";
     import CardContextMenu from "$lib/components/CardContextMenu.svelte";
-    import type { DataConnection } from "peerjs";
     import { desktopState } from "./desktop-state.svelte";
     import { interactionManager } from "./interaction-manager.svelte";
 
@@ -98,79 +97,11 @@
                 desktopState.handleFilesUpdate(files);
         });
 
-        // Initialize PeerJS
+        // Initialize Sync Server connection
         try {
-            const { Peer } = await import("peerjs");
-
-            const initPeer = () => {
-                // Dejar que PeerJS genere el UUID seguro largo
-                desktopState.peerInstance = new Peer();
-
-                desktopState.peerInstance.on("open", async (uuid: string) => {
-                    try {
-                        const shortCode = await desktopState.registerPeerMapping(uuid);
-                        desktopState.peerId = shortCode;
-                    } catch (e) {
-                        console.error("Error al registrar código de vinculación:", e);
-                        desktopState.peerId = "ERROR";
-                    }
-                });
-
-                desktopState.peerInstance.on(
-                    "connection",
-                    (conn: DataConnection) => {
-                        // Limitar a 10 dispositivos máximo (sin contar esta PC)
-                        if (desktopState.clientConnections.length >= 10) {
-                            conn.on("open", () => {
-                                conn.send({
-                                    type: "error",
-                                    message:
-                                        "Límite de dispositivos alcanzado (10 max).",
-                                });
-                                setTimeout(() => conn.close(), 500);
-                            });
-                            return;
-                        }
-
-                        desktopState.isMobileLinkOpen = false;
-
-                        conn.on("open", () => {
-                            desktopState.clientConnections.push(conn);
-                            // Sincronizar el estado actual al nuevo cliente
-                            conn.send({
-                                type: "sync-state",
-                                items: desktopState.items,
-                            });
-                        });
-
-                        conn.on("data", (data: any) => {
-                            desktopState.handleIncomingPeerData(data, conn);
-                        });
-
-                        conn.on("close", () => {
-                            desktopState.clientConnections =
-                                desktopState.clientConnections.filter(
-                                    (c) => c !== conn,
-                                );
-                        });
-
-                        conn.on("error", () => {
-                            desktopState.clientConnections =
-                                desktopState.clientConnections.filter(
-                                    (c) => c !== conn,
-                                );
-                        });
-                    },
-                );
-
-                desktopState.peerInstance.on("error", (err: any) => {
-                    console.error("PeerJS error:", err);
-                });
-            };
-
-            initPeer();
+            await desktopState.registerPeerMapping();
         } catch (err) {
-            console.error("Failed to initialize PeerJS:", err);
+            console.error("Failed to initialize sync server:", err);
         }
 
         setTimeout(() => (desktopState.isReady = true), 300);
@@ -181,7 +112,6 @@
             capture: true,
         });
         if (stopListening) await stopListening();
-        if (desktopState.peerInstance) desktopState.peerInstance.destroy();
     });
 
     async function onCopy(item: ClipboardItem) {

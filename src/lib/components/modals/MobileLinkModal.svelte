@@ -9,7 +9,6 @@
     import { desktopState } from "../../../routes/desktop-state.svelte";
     import { Input } from "$lib/components/ui/input/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
-    import { PUBLIC_MOBILE_URL } from "$env/static/public";
 
     let {
         open = $bindable(false),
@@ -21,12 +20,22 @@
     let copied = $state(false);
     let targetPeerId = $state("");
 
-    const baseUrl = PUBLIC_MOBILE_URL;
+    function getLiteUrl() {
+        const envLite = (import.meta.env.PUBLIC_LITE_URL as string) || (import.meta.env.PUBLIC_MOBILE_URL as string);
+        if (envLite) return envLite;
+        if (typeof window !== "undefined") {
+            return `${window.location.origin}/lite`;
+        }
+        return "http://localhost:5173/lite";
+    }
 
     $effect(() => {
         const activeCanvas = desktopState.hostConnection ? canvasConnected : canvasStandalone;
         if (open && activeCanvas && peerId) {
-            const url = `${baseUrl}?peerId=${peerId}`;
+            const baseUrl = getLiteUrl();
+            const sep = baseUrl.includes("?") ? "&" : "?";
+            const url = `${baseUrl}${sep}room=${peerId}&peerId=${peerId}`;
+
             QRCode.toCanvas(
                 activeCanvas,
                 url,
@@ -303,7 +312,7 @@
                                                 conn.close();
                                                 desktopState.clientConnections =
                                                     desktopState.clientConnections.filter(
-                                                        (c) => c !== conn,
+                                                        (c: any) => c !== conn,
                                                     );
                                             }}
                                         >

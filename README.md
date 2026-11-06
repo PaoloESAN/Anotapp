@@ -23,7 +23,7 @@
 
 Anotapp es una herramienta que captura automáticamente el historial del portapapeles y los presenta como tarjetas interactivas en un lienzo infinito. Permite organizar extractos de texto, imágenes y archivos de forma visual a través de múltiples mesas de trabajo, conectando tus dispositivos móviles y de escritorio para una experiencia fluida.
 
-Además, cuenta con una **Versión Web Lite** accesible desde cualquier navegador. Esta versión permite interactuar con el lienzo, crear notas manuales y sincronizarse con otros dispositivos de forma bidireccional a través de conexión P2P rápida sin necesidad de instalar la aplicación de escritorio y sin capturar automáticamente el portapapeles local.
+Además, cuenta con una **Versión Web Lite** unificada y totalmente responsive, accesible desde cualquier navegador tanto en escritorio como en dispositivos móviles. Esta versión permite interactuar con el lienzo o ver las tarjetas en un feed optimizado para móviles, enviar notas de texto, fotos tomadas con la cámara y archivos adjuntos sincronizados bidireccionalmente en tiempo real mediante un servidor WebSocket de alto rendimiento en Elysia v2.
 
 ## Capturas de pantalla
 
@@ -35,8 +35,9 @@ Además, cuenta con una **Versión Web Lite** accesible desde cualquier navegado
 
 - **Captura automática:** Monitorización nativa del portapapeles en tiempo real (texto e imágenes) mediante eventos del sistema operativo, sin polling.
 - **Mesas de trabajo (Workspaces):** Organiza tus notas en múltiples áreas de trabajo con navegación fluida y arrastre de tarjetas entre mesas.
-- **Vincular dispositivos:** Conecta tu PC y smartphone escaneando un código QR para compartir contenido del portapapeles instantáneamente.
-- **Compartir y descargar archivos:** Sube archivos genéricos desde tu teléfono y descárgalos nativamente en tu computadora a través de conexión P2P rápida.
+- **Vincular dispositivos:** Conecta tu PC y smartphone escaneando un código QR para compartir contenido instantáneamente a través de salas seguras con código de 6 caracteres.
+- **Compartir y descargar archivos:** Sube fotos de la cámara o galería y archivos genéricos desde tu teléfono y descárgalos nativamente en tu computadora.
+- **Sincronización robusta:** Conexión persistente mediante WebSocket con Elysia v2, funcionando sin interrupciones entre diferentes redes WiFi y datos móviles.
 - **Respaldo de datos:** Exporta e importa todas tus mesas de trabajo y notas en un archivo seguro para no perder nunca tu información.
 - **Extracción de texto (OCR):** Extrae texto de las imágenes de tu portapapeles con un solo clic.
 - **Gestión interactiva:** Tarjetas que se pueden arrastrar, redimensionar y organizar libremente. Menús contextuales globales (clic derecho) para acciones rápidas.
@@ -47,6 +48,7 @@ Además, cuenta con una **Versión Web Lite** accesible desde cualquier navegado
 
 - [Tauri v2](https://v2.tauri.app/)
 - [Svelte 5](https://svelte.dev/)
+- [Elysia v2](https://elysiajs.com/) & [Bun](https://bun.sh/) (Servidor de sincronización WebSocket y subida de archivos)
 - [TailwindCSS](https://tailwindcss.com/)
 - [Shadcn Svelte](https://www.shadcn-svelte.com/)
 - [Lucide Icons](https://lucide.dev/)

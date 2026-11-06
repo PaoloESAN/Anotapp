@@ -4,6 +4,7 @@ export interface ClipboardItem {
     content: string;
     files?: string[];
     fileId?: string;
+    downloadUrl?: string;
     name?: string;
     size?: number;
     x: number;
