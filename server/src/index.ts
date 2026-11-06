@@ -68,7 +68,7 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.PORT || 8080);
 const rawCorsOrigin = process.env.CORS_ORIGIN?.trim() || "*";
 
 // Permitir múltiples orígenes separados por coma, comodín '*' o un origen único
