@@ -55,6 +55,14 @@ jobs:
         with:
           tagName: ${{ steps.determine_tag.outputs.tag }}
           releaseName: 'Anotapp ${{ steps.determine_tag.outputs.tag }}'
-          releaseBody: 'Instalador oficial de Anotapp para Windows (.exe).\n\nCompilado automáticamente vía GitHub Actions.'
+          releaseBody: 'Binarios de Anotapp para Windows:\n\n- **Anotapp.exe**: Ejecutable directo / portable (sin instalación, listo para abrir con doble clic).\n- **Anotapp_..._setup.exe**: Asistente de instalación estándar para Windows.'
           releaseDraft: false
           prerelease: false
+
+      - name: Upload standalone executable (portable Anotapp.exe)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.determine_tag.outputs.tag }}" "src-tauri/target/release/Anotapp.exe" --clobber
+
