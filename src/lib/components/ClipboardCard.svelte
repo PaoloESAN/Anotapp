@@ -63,7 +63,7 @@
     data-card-id={item.id}
     in:fly={{ y: 20, duration: 400, opacity: 0 }}
     out:fade={{ duration: 200 }}
-    class="absolute group select-none flex flex-col touch-none pointer-events-auto transition-transform duration-150 {desktopState.draggedItemId === item.id ? 'scale-[1.02] ring-2 ring-primary ring-offset-2 ring-offset-background shadow-2xl cursor-grabbing' : ''}"
+    class="absolute group select-none flex flex-col touch-none pointer-events-auto outline-none transition-transform duration-150 {desktopState.draggedItemId === item.id ? 'scale-[1.02] shadow-2xl cursor-grabbing' : ''}"
     style="left: {item.x}px; top: {item.y}px; z-index: {desktopState.draggedItemId === item.id ? 9999 : (item.z || 100)}; pointer-events: auto; touch-action: none; {item.w
         ? `width: ${item.w}px;`
         : item.type === 'text'
@@ -101,7 +101,7 @@
         bind:clientHeight={cardHeight}
         bind:clientWidth={cardWidth}
         style="touch-action: none; pointer-events: auto;"
-        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none pointer-events-auto"
+        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none pointer-events-auto outline-none"
         onpointerdown={handleCardPointerDown}
     >
         <!-- Header Handle -->
