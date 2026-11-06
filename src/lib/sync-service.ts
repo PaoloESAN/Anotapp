@@ -63,7 +63,7 @@ class SyncService {
                 return "http://localhost:3000";
             }
         }
-        return "http://localhost:3000";
+        return "https://anotapp-production.up.railway.app";
     }
 
     getWsUrl(): string {
