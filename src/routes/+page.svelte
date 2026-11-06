@@ -187,25 +187,18 @@
             }
         }
 
-        // Auto-conexión si hay parámetro room o peerId en la URL o sessionStorage
+        // Auto-conexión SOLO si hay parámetro room o peerId en la URL
         const urlParams = new URLSearchParams(window.location.search);
-        let roomParam = urlParams.get("room") || urlParams.get("peerId") || "";
-
-        if (!roomParam && typeof sessionStorage !== "undefined") {
-            roomParam = sessionStorage.getItem("anotapp_room") || "";
-        }
+        const roomParam = urlParams.get("room") || urlParams.get("peerId") || "";
 
         try {
             if (roomParam) {
                 const upper = roomParam.trim().toUpperCase();
                 sessionStorage.setItem("anotapp_room", upper);
                 await syncService.connectToRoom(upper);
-            } else {
-                // Registrar sala como host por defecto
-                await desktopState.registerPeerMapping();
             }
         } catch (err) {
-            console.error("Error al inicializar conexión con servidor:", err);
+            console.error("Error al conectar a la sala desde URL:", err);
         }
 
         setTimeout(() => (desktopState.isReady = true), 300);
@@ -767,16 +760,14 @@
 
                 <!-- Camera QR Scanner View -->
                 {#if isScannerActive}
-                    <div class="space-y-2">
-                        <div class="w-full h-64 rounded-xl overflow-hidden bg-black relative border border-slate-200 dark:border-zinc-800">
-                            <ScannerView onScanComplete={handleScanResult} onCancel={() => (isScannerActive = false)} />
-                        </div>
+                    <div class="space-y-3">
+                        <ScannerView onScanComplete={handleScanResult} onCancel={() => (isScannerActive = false)} />
                         <Button
                             variant="outline"
-                            class="w-full h-8 text-xs rounded-xl"
+                            class="w-full h-9 text-xs rounded-xl"
                             onclick={() => (isScannerActive = false)}
                         >
-                            Cancelar escáner
+                            Cerrar escáner de cámara
                         </Button>
                     </div>
                 {:else}
@@ -813,6 +804,27 @@
                         Conectar
                     </Button>
                 </form>
+
+                <!-- Crear sala nueva bajo demanda -->
+                {#if syncService.status !== "connected"}
+                    <div class="pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                        <Button
+                            variant="outline"
+                            class="w-full h-9 rounded-xl text-xs gap-1.5 border-dashed"
+                            onclick={async () => {
+                                try {
+                                    await desktopState.registerPeerMapping();
+                                    isScanModalOpen = false;
+                                } catch (e) {
+                                    alert("Error al crear sala: " + e);
+                                }
+                            }}
+                        >
+                            <Plus class="w-3.5 h-3.5" />
+                            <span>Crear sala en este dispositivo</span>
+                        </Button>
+                    </div>
+                {/if}
             </div>
         </Dialog.Content>
     </Dialog.Root>

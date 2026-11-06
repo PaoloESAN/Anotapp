@@ -7,6 +7,7 @@
     import Link from "@lucide/svelte/icons/link";
     import Unplug from "@lucide/svelte/icons/unplug";
     import { desktopState } from "../../../routes/desktop-state.svelte";
+    import { syncService } from "$lib/sync-service.svelte";
     import { Input } from "$lib/components/ui/input/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
 
@@ -28,6 +29,12 @@
         }
         return "https://anotapp-web.vercel.app";
     }
+
+    $effect(() => {
+        if (open && !peerId && !syncService.roomCode) {
+            desktopState.registerPeerMapping();
+        }
+    });
 
     $effect(() => {
         const activeCanvas = desktopState.hostConnection ? canvasConnected : canvasStandalone;

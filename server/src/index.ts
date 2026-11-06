@@ -69,10 +69,18 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 const port = Number(process.env.PORT || 3000);
+const rawCorsOrigin = process.env.CORS_ORIGIN?.trim() || "*";
+
+// Permitir múltiples orígenes separados por coma, comodín '*' o un origen único
+const corsOrigin = rawCorsOrigin === "*"
+  ? true
+  : rawCorsOrigin.includes(",")
+    ? rawCorsOrigin.split(",").map(o => o.trim()).filter(Boolean)
+    : rawCorsOrigin;
 
 export const app = new Elysia()
   .use(cors({
-    origin: "*",
+    origin: corsOrigin,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }))
