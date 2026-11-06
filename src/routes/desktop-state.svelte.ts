@@ -631,6 +631,30 @@ class DesktopState {
             return;
         }
 
+        if (data.type === "file-transfer-ready") {
+            const isImage = data.isImage || (data.mimeType && data.mimeType.startsWith("image/"));
+            if (isImage) {
+                this.addItem({
+                    type: "image",
+                    content: data.downloadUrl,
+                    name: data.name,
+                    downloadUrl: data.downloadUrl,
+                    size: data.size,
+                    fileId: data.fileId,
+                }, true);
+            } else {
+                this.addItem({
+                    type: "peer-file",
+                    content: "",
+                    name: data.name,
+                    size: data.size,
+                    fileId: data.fileId,
+                    downloadUrl: data.downloadUrl,
+                }, true);
+            }
+            return;
+        }
+
         if (data.type === "request-file-data" && data.fileId) {
             const file = this.hostedFiles.get(data.fileId);
             if (file) {

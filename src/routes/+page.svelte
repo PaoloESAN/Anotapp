@@ -41,6 +41,7 @@
     import X from "@lucide/svelte/icons/x";
     import Unplug from "@lucide/svelte/icons/unplug";
     import ChevronDown from "@lucide/svelte/icons/chevron-down";
+    import Zap from "@lucide/svelte/icons/zap";
 
     // UI Components
     import { Button } from "$lib/components/ui/button";
@@ -234,7 +235,8 @@
         isUploading = true;
         try {
             const isImage = file.type.startsWith("image/");
-            const uploadRes = await syncService.uploadFile(file);
+            // Usar transferencia P2P directa / WebSocket stream (sin límites, 0 RAM en server)
+            const transferRes = await syncService.transferFile(file);
 
             if (isImage) {
                 const reader = new FileReader();
@@ -244,8 +246,10 @@
                         type: "image",
                         content: dataUrl,
                         name: file.name,
-                        downloadUrl: uploadRes.downloadUrl,
-                    });
+                        downloadUrl: transferRes.downloadUrl,
+                        fileId: transferRes.fileId,
+                        size: file.size,
+                    }, true);
                 };
                 reader.readAsDataURL(file);
             } else {
@@ -254,12 +258,12 @@
                     content: "",
                     name: file.name,
                     size: file.size,
-                    fileId: uploadRes.fileId || crypto.randomUUID(),
-                    downloadUrl: uploadRes.downloadUrl,
-                });
+                    fileId: transferRes.fileId,
+                    downloadUrl: transferRes.downloadUrl,
+                }, true);
             }
         } catch (err) {
-            console.error("Error al procesar archivo:", err);
+            console.error("Error al transferir archivo:", err);
             if (file.type.startsWith("image/")) {
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -393,17 +397,28 @@
 
             <!-- Connection Status Badge / Vincular Button -->
             {#if syncService.status === "connected" && syncService.roomCode}
-                <button
-                    onclick={() => (isMobile ? (isScanModalOpen = true) : (desktopState.isMobileLinkOpen = true))}
-                    class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all cursor-pointer shadow-xs"
-                    title="Sala activa. Haz clic para ver detalles"
-                >
-                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    <span class="font-mono tracking-wider">{syncService.roomCode}</span>
-                    {#if syncService.deviceCount > 1}
-                        <span class="text-[10px] bg-green-500/20 px-1 rounded-sm ml-0.5">{syncService.deviceCount}</span>
+                <div class="flex items-center gap-1.5">
+                    <button
+                        onclick={() => (isMobile ? (isScanModalOpen = true) : (desktopState.isMobileLinkOpen = true))}
+                        class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all cursor-pointer shadow-xs"
+                        title="Sala activa. Haz clic para ver detalles"
+                    >
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        <span class="font-mono tracking-wider">{syncService.roomCode}</span>
+                        {#if syncService.deviceCount > 1}
+                            <span class="text-[10px] bg-green-500/20 px-1 rounded-sm ml-0.5">{syncService.deviceCount}</span>
+                        {/if}
+                    </button>
+                    {#if syncService.p2pStatus === "connected"}
+                        <span
+                            class="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 px-2 py-1 rounded-full shadow-xs"
+                            title="Conexión directa P2P activa vía WebRTC"
+                        >
+                            <Zap class="w-3 h-3 fill-emerald-500 text-emerald-500" />
+                            <span>P2P</span>
+                        </span>
                     {/if}
-                </button>
+                </div>
             {:else if syncService.status === "connecting" || syncService.status === "reconnecting"}
                 <div class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                     <Loader2 class="w-3.5 h-3.5 animate-spin" />
@@ -693,6 +708,31 @@
                     </button>
                 </div>
             </div>
+        </div>
+    {/if}
+
+    <!-- ============================================== -->
+    <!-- FLOATING FILE TRANSFER PROGRESS               -->
+    <!-- ============================================== -->
+    {#if syncService.transferProgress}
+        <div class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl px-4 py-3 min-w-[280px] max-w-[90vw] flex flex-col gap-1.5 animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div class="flex items-center justify-between text-xs">
+                <span class="font-semibold truncate max-w-[190px] text-slate-800 dark:text-zinc-200">
+                    {syncService.transferProgress.name}
+                </span>
+                <span class="font-mono text-primary font-bold">
+                    {syncService.transferProgress.percent}%
+                </span>
+            </div>
+            <div class="w-full bg-slate-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                <div
+                    class="bg-primary h-full transition-all duration-150 rounded-full"
+                    style="width: {syncService.transferProgress.percent}%"
+                ></div>
+            </div>
+            <span class="text-[10px] text-slate-400 dark:text-zinc-500 text-center">
+                Transfiriendo archivo {syncService.p2pStatus === "connected" ? "P2P WebRTC directo" : "por streaming seguro"}...
+            </span>
         </div>
     {/if}
 
