@@ -49,48 +49,9 @@
     }
 
     function handleCardPointerDown(e: PointerEvent) {
-        if (e.pointerType === "touch") {
-            touchStartClientX = e.clientX;
-            touchStartClientY = e.clientY;
-            isLongPressActive = false;
-
-            if (longPressTimeout) clearTimeout(longPressTimeout);
-
-            longPressTimeout = setTimeout(() => {
-                isLongPressActive = true;
-                interactionManager.heldCardId = item.id;
-                if (typeof navigator !== "undefined" && navigator.vibrate) {
-                    try { navigator.vibrate(40); } catch {}
-                }
-                onDragStart(e, item.id);
-            }, 260);
-        } else {
-            if (e.button === 0) {
-                onDragStart(e, item.id);
-            }
-        }
-    }
-
-    function handleCardPointerMove(e: PointerEvent) {
-        if (e.pointerType === "touch" && longPressTimeout && !isLongPressActive) {
-            const dist = Math.hypot(e.clientX - touchStartClientX, e.clientY - touchStartClientY);
-            if (dist > 8) {
-                // Moved before 260ms -> cancel hold and start canvas pan
-                clearTimeout(longPressTimeout);
-                longPressTimeout = null;
-                interactionManager.startCanvasPan(e);
-            }
-        }
-    }
-
-    function handleCardPointerUp(e: PointerEvent) {
-        if (longPressTimeout) {
-            clearTimeout(longPressTimeout);
-            longPressTimeout = null;
-        }
-        if (isLongPressActive) {
-            isLongPressActive = false;
-        }
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        onBringToFront(item.id);
+        onDragStart(e, item.id);
     }
 </script>
 
@@ -102,8 +63,8 @@
     data-card-id={item.id}
     in:fly={{ y: 20, duration: 400, opacity: 0 }}
     out:fade={{ duration: 200 }}
-    class="absolute group select-none flex flex-col touch-none transition-all duration-200 {interactionManager.heldCardId === item.id ? 'scale-[1.04] ring-2 ring-primary ring-offset-2 ring-offset-background shadow-2xl z-50 cursor-grabbing' : ''}"
-    style="left: {item.x}px; top: {item.y}px; z-index: {item.z}; touch-action: none; {item.w
+    class="absolute group select-none flex flex-col touch-none pointer-events-auto transition-transform duration-150 {desktopState.draggedItemId === item.id ? 'scale-[1.02] ring-2 ring-primary ring-offset-2 ring-offset-background shadow-2xl cursor-grabbing' : ''}"
+    style="left: {item.x}px; top: {item.y}px; z-index: {desktopState.draggedItemId === item.id ? 9999 : (item.z || 100)}; pointer-events: auto; touch-action: none; {item.w
         ? `width: ${item.w}px;`
         : item.type === 'text'
           ? 'min-width: 200px; max-width: clamp(250px, 40vw, 400px);'
@@ -117,6 +78,7 @@
     }}
     oncontextmenu={async (e) => {
         e.preventDefault();
+        e.stopPropagation();
         // Si ya está abierto, lo cerramos primero para forzar el reposicionamiento
         if (desktopState.contextMenu.open) {
             desktopState.contextMenu.open = false;
@@ -138,31 +100,18 @@
         tabindex="-1"
         bind:clientHeight={cardHeight}
         bind:clientWidth={cardWidth}
-        style="touch-action: none;"
-        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none"
+        style="touch-action: none; pointer-events: auto;"
+        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none pointer-events-auto"
         onpointerdown={handleCardPointerDown}
-        onpointermove={handleCardPointerMove}
-        onpointerup={handleCardPointerUp}
-        onpointercancel={handleCardPointerUp}
     >
-        <!-- Floating moving indicator on hold -->
-        {#if interactionManager.heldCardId === item.id}
-            <div class="absolute -top-7 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-lg flex items-center gap-1 pointer-events-none animate-pulse">
-                <span>Moviendo</span>
-            </div>
-        {/if}
-
         <!-- Header Handle -->
         {#if !hideHeaders}
             <div
                 role="presentation"
                 tabindex="-1"
-                style="touch-action: none;"
-                class="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-900/80 rounded-t-2xl cursor-grab active:cursor-grabbing touch-none"
+                style="touch-action: none; pointer-events: auto;"
+                class="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-900/80 rounded-t-2xl cursor-grab active:cursor-grabbing touch-none pointer-events-auto"
                 onpointerdown={handleCardPointerDown}
-                onpointermove={handleCardPointerMove}
-                onpointerup={handleCardPointerUp}
-                onpointercancel={handleCardPointerUp}
             >
                 <div
                     class="flex items-center space-x-2 text-slate-500 dark:text-zinc-400 min-w-0"
@@ -374,7 +323,7 @@
                             if (e.ctrlKey || e.metaKey) {
                                 e.stopPropagation();
                             } else {
-                                onDragStart(e, item.id);
+                                handleCardPointerDown(e);
                             }
                         }}
                         class="text-slate-800 dark:text-zinc-200 text-sm font-medium leading-relaxed w-full h-full overflow-y-auto pr-3 custom-scrollbar wrap-break-word select-text rounded"

@@ -33,7 +33,7 @@ class DesktopState {
         if (ws) ws.items = newItems;
     }
 
-    maxZ = $state(1);
+    maxZ = $state(100);
     lastText = $state("");
     lastImageB64Len = $state(0);
     lastFilesKey = $state("");
@@ -111,7 +111,7 @@ class DesktopState {
                         if (Array.isArray(parsed) && parsed.length > 0) {
                             this.workspaces = parsed;
                             // Calculate maxZ across all workspaces
-                            let currentMaxZ = 1;
+                            let currentMaxZ = 100;
                             this.workspaces.forEach(ws => {
                                 if (!Array.isArray(ws.items)) ws.items = [];
                                 ws.items.forEach(item => {

@@ -180,6 +180,19 @@ class InteractionManager {
         // Space + left click or middle click or normal click on canvas background
         if (e.button !== 0 && e.button !== 1 && e.pointerType === "mouse") return;
 
+        // If clicking on a card or interactive element, DO NOT pan canvas!
+        const target = e.target as HTMLElement;
+        if (
+            target.closest("[data-card-id]") ||
+            target.closest("[role='toolbar']") ||
+            target.closest("button") ||
+            target.closest("input") ||
+            target.closest("textarea") ||
+            target.closest("a")
+        ) {
+            return;
+        }
+
         this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         this.isPanning = true;
 
@@ -228,6 +241,10 @@ class InteractionManager {
         const item = desktopState.items.find((i) => i.id === id);
         if (!item) return;
         item.z = desktopState.maxZ++;
+
+        try {
+            e.stopPropagation();
+        } catch {}
 
         const canvasCoords = this.screenToCanvas(e.clientX, e.clientY);
         this.activeDrag = {
