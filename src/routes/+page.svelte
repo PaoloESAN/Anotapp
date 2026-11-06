@@ -318,6 +318,7 @@
 <svelte:window
     onpointermove={(e) => interactionManager.onPointerMove(e)}
     onpointerup={(e) => interactionManager.onPointerUp(e)}
+    onpointercancel={(e) => interactionManager.onPointerUp(e)}
     onresize={() => interactionManager.onWindowResize()}
 />
 

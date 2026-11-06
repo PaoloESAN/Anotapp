@@ -8,7 +8,7 @@
 {#if count > 0}
     <AlertDialog.Root>
         <AlertDialog.Trigger
-            class="group fixed bottom-6 right-6 z-50 flex items-center rounded-full border border-red-900/30 dark:border-red-900/50 bg-white/80 dark:bg-zinc-900/80 backdrop-blur p-3 hover:px-5 text-sm font-semibold text-red-600 dark:text-red-400 shadow-xl transition-all duration-300 ease-out hover:bg-red-50 dark:hover:bg-red-950/50 hover:border-red-500/50 dark:hover:border-red-900/50 hover:text-red-700 dark:hover:text-red-300"
+            class="group fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center rounded-full border border-red-900/30 dark:border-red-900/50 bg-white/80 dark:bg-zinc-900/80 backdrop-blur p-3 hover:px-5 text-sm font-semibold text-red-600 dark:text-red-400 shadow-xl transition-all duration-300 ease-out hover:bg-red-50 dark:hover:bg-red-950/50 hover:border-red-500/50 dark:hover:border-red-900/50 hover:text-red-700 dark:hover:text-red-300 cursor-pointer"
             title="Borrar todas las notas"
         >
             <Trash2 class="w-5 h-5 shrink-0" />

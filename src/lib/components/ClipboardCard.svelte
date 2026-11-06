@@ -52,11 +52,8 @@
     data-card-id={item.id}
     in:fly={{ y: 20, duration: 400, opacity: 0 }}
     out:fade={{ duration: 200 }}
-    class="absolute group select-none flex flex-col {desktopState.draggedItemId ===
-    item.id
-        ? 'pointer-events-none'
-        : ''}"
-    style="left: {item.x}px; top: {item.y}px; z-index: {item.z}; {item.w
+    class="absolute group select-none flex flex-col touch-none"
+    style="left: {item.x}px; top: {item.y}px; z-index: {item.z}; touch-action: none; {item.w
         ? `width: ${item.w}px;`
         : item.type === 'text'
           ? 'min-width: 200px; max-width: clamp(250px, 40vw, 400px);'
@@ -66,7 +63,7 @@
           ? 'max-height: clamp(120px, 35vh, 200px);'
           : ''}"
     onpointerdown={(e) => {
-        if (e.button === 0) onBringToFront(item.id);
+        if (e.button === 0 || e.pointerType === "touch") onBringToFront(item.id);
     }}
     oncontextmenu={async (e) => {
         e.preventDefault();
@@ -91,7 +88,8 @@
         tabindex="-1"
         bind:clientHeight={cardHeight}
         bind:clientWidth={cardWidth}
-        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing"
+        style="touch-action: none;"
+        class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none"
         onpointerdown={(e) => onDragStart(e, item.id)}
     >
         <!-- Header Handle -->
@@ -99,7 +97,8 @@
             <div
                 role="presentation"
                 tabindex="-1"
-                class="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-900/80 rounded-t-2xl cursor-grab active:cursor-grabbing"
+                style="touch-action: none;"
+                class="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-900/80 rounded-t-2xl cursor-grab active:cursor-grabbing touch-none"
                 onpointerdown={(e) => onDragStart(e, item.id)}
             >
                 <div

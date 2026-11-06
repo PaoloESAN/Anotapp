@@ -13,7 +13,7 @@ class InteractionManager {
     } | null>(null);
 
     onDragStart(e: PointerEvent, id: string) {
-        if (e.button !== 0) return;
+        if (e.button !== 0 && e.pointerType === "mouse") return;
         const item = desktopState.items.find((i) => i.id === id);
         if (!item) return;
         item.z = desktopState.maxZ++;
@@ -25,7 +25,9 @@ class InteractionManager {
         desktopState.draggedItemId = id;
         desktopState.pointerY = e.clientY;
         const el = e.currentTarget as HTMLElement;
-        el.setPointerCapture(e.pointerId);
+        try {
+            el.setPointerCapture(e.pointerId);
+        } catch {}
     }
 
     onResizeStart(
@@ -89,7 +91,11 @@ class InteractionManager {
 
         if (this.activeDrag) {
             modifiedItemId = this.activeDrag.id;
+            const cardEl = document.getElementById(`card-${this.activeDrag.id}`);
+            if (cardEl) cardEl.style.visibility = "hidden";
             const element = document.elementFromPoint(e.clientX, e.clientY);
+            if (cardEl) cardEl.style.visibility = "";
+
             const wsButton = element?.closest("[data-workspace-button]");
             if (wsButton) {
                 const wsId = wsButton.getAttribute("data-workspace-id");
