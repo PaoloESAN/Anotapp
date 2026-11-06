@@ -1,8 +1,13 @@
 {
+  "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/lite(.*)",
+      "destination": "/lite/index.html"
+    },
+    {
+      "source": "/mobile(.*)",
+      "destination": "/mobile/index.html"
     }
   ]
 }

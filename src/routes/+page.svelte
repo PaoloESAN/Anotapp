@@ -68,6 +68,12 @@
     }
 
     onMount(async () => {
+        // Si se abre desde un navegador web (fuera de Tauri), redirigir a /lite
+        if (typeof window !== "undefined" && !(window as any).__TAURI_INTERNALS__) {
+            window.location.replace("/lite");
+            return;
+        }
+
         window.addEventListener("contextmenu", handleGlobalContextMenu, {
             capture: true,
         });
@@ -75,27 +81,31 @@
             desktopState.customBgImage = e.detail;
         }) as EventListener);
 
-        stopListening = await startListening();
-        await onTextUpdate((text) => {
-            if (desktopState.clipboardPaused) return;
-            if (!text || text === desktopState.lastText) return;
-            if (
-                desktopState.items.find(
-                    (i) => i.type === "text" && i.content === text,
+        try {
+            stopListening = await startListening();
+            await onTextUpdate((text) => {
+                if (desktopState.clipboardPaused) return;
+                if (!text || text === desktopState.lastText) return;
+                if (
+                    desktopState.items.find(
+                        (i) => i.type === "text" && i.content === text,
+                    )
                 )
-            )
-                return;
-            desktopState.lastText = text;
-            desktopState.addItem({ type: "text", content: text });
-        });
-        await onImageUpdate((b64) => {
-            if (!desktopState.clipboardPaused)
-                desktopState.handleImageUpdate(b64);
-        });
-        await onFilesUpdate((files) => {
-            if (!desktopState.clipboardPaused)
-                desktopState.handleFilesUpdate(files);
-        });
+                    return;
+                desktopState.lastText = text;
+                desktopState.addItem({ type: "text", content: text });
+            });
+            await onImageUpdate((b64) => {
+                if (!desktopState.clipboardPaused)
+                    desktopState.handleImageUpdate(b64);
+            });
+            await onFilesUpdate((files) => {
+                if (!desktopState.clipboardPaused)
+                    desktopState.handleFilesUpdate(files);
+            });
+        } catch (err) {
+            console.warn("Listeners de portapapeles de Tauri no disponibles:", err);
+        }
 
         // Initialize Sync Server connection
         try {
