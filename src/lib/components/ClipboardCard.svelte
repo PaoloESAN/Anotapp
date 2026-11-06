@@ -9,6 +9,7 @@
     import Download from "@lucide/svelte/icons/download";
     import type { ClipboardItem } from "$lib/types";
     import { desktopState } from "../../routes/desktop-state.svelte";
+    import { interactionManager } from "../../routes/interaction-manager.svelte";
 
     let {
         item = $bindable(),
@@ -34,6 +35,10 @@
 
     let cardHeight = $state(0);
     let cardWidth = $state(0);
+    let longPressTimeout: any = null;
+    let touchStartClientX = 0;
+    let touchStartClientY = 0;
+    let isLongPressActive = $state(false);
 
     function focusAndSelectStart(node: HTMLTextAreaElement) {
         setTimeout(() => {
@@ -41,6 +46,51 @@
             node.setSelectionRange(0, 0);
             node.scrollTop = 0;
         }, 100);
+    }
+
+    function handleCardPointerDown(e: PointerEvent) {
+        if (e.pointerType === "touch") {
+            touchStartClientX = e.clientX;
+            touchStartClientY = e.clientY;
+            isLongPressActive = false;
+
+            if (longPressTimeout) clearTimeout(longPressTimeout);
+
+            longPressTimeout = setTimeout(() => {
+                isLongPressActive = true;
+                interactionManager.heldCardId = item.id;
+                if (typeof navigator !== "undefined" && navigator.vibrate) {
+                    try { navigator.vibrate(40); } catch {}
+                }
+                onDragStart(e, item.id);
+            }, 260);
+        } else {
+            if (e.button === 0) {
+                onDragStart(e, item.id);
+            }
+        }
+    }
+
+    function handleCardPointerMove(e: PointerEvent) {
+        if (e.pointerType === "touch" && longPressTimeout && !isLongPressActive) {
+            const dist = Math.hypot(e.clientX - touchStartClientX, e.clientY - touchStartClientY);
+            if (dist > 8) {
+                // Moved before 260ms -> cancel hold and start canvas pan
+                clearTimeout(longPressTimeout);
+                longPressTimeout = null;
+                interactionManager.startCanvasPan(e);
+            }
+        }
+    }
+
+    function handleCardPointerUp(e: PointerEvent) {
+        if (longPressTimeout) {
+            clearTimeout(longPressTimeout);
+            longPressTimeout = null;
+        }
+        if (isLongPressActive) {
+            isLongPressActive = false;
+        }
     }
 </script>
 
@@ -52,7 +102,7 @@
     data-card-id={item.id}
     in:fly={{ y: 20, duration: 400, opacity: 0 }}
     out:fade={{ duration: 200 }}
-    class="absolute group select-none flex flex-col touch-none"
+    class="absolute group select-none flex flex-col touch-none transition-all duration-200 {interactionManager.heldCardId === item.id ? 'scale-[1.04] ring-2 ring-primary ring-offset-2 ring-offset-background shadow-2xl z-50 cursor-grabbing' : ''}"
     style="left: {item.x}px; top: {item.y}px; z-index: {item.z}; touch-action: none; {item.w
         ? `width: ${item.w}px;`
         : item.type === 'text'
@@ -90,8 +140,18 @@
         bind:clientWidth={cardWidth}
         style="touch-action: none;"
         class="rounded-2xl border border-slate-200/50 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl transition-all duration-300 group-hover:border-slate-300 dark:group-hover:border-zinc-600/80 group-hover:shadow-indigo-500/5 ring-1 ring-black/5 dark:ring-white/5 flex flex-col w-full flex-1 min-h-0 relative cursor-grab active:cursor-grabbing touch-none"
-        onpointerdown={(e) => onDragStart(e, item.id)}
+        onpointerdown={handleCardPointerDown}
+        onpointermove={handleCardPointerMove}
+        onpointerup={handleCardPointerUp}
+        onpointercancel={handleCardPointerUp}
     >
+        <!-- Floating moving indicator on hold -->
+        {#if interactionManager.heldCardId === item.id}
+            <div class="absolute -top-7 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold shadow-lg flex items-center gap-1 pointer-events-none animate-pulse">
+                <span>Moviendo</span>
+            </div>
+        {/if}
+
         <!-- Header Handle -->
         {#if !hideHeaders}
             <div
@@ -99,7 +159,10 @@
                 tabindex="-1"
                 style="touch-action: none;"
                 class="shrink-0 flex items-center justify-between px-3 py-2 border-b border-slate-200/50 dark:border-zinc-800/50 bg-white/80 dark:bg-zinc-900/80 rounded-t-2xl cursor-grab active:cursor-grabbing touch-none"
-                onpointerdown={(e) => onDragStart(e, item.id)}
+                onpointerdown={handleCardPointerDown}
+                onpointermove={handleCardPointerMove}
+                onpointerup={handleCardPointerUp}
+                onpointercancel={handleCardPointerUp}
             >
                 <div
                     class="flex items-center space-x-2 text-slate-500 dark:text-zinc-400 min-w-0"

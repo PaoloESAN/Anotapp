@@ -223,9 +223,20 @@ class DesktopState {
         }
     }
 
+    viewportCenterProvider: (() => { x: number; y: number }) | null = null;
+
     getRandomPosition(w: number, h: number): { x: number; y: number } {
         if (typeof window === "undefined") {
             return { x: 100, y: 100 };
+        }
+        if (this.viewportCenterProvider) {
+            const center = this.viewportCenterProvider();
+            const jitterX = (Math.random() - 0.5) * 120;
+            const jitterY = (Math.random() - 0.5) * 120;
+            return {
+                x: Math.round(center.x - w / 2 + jitterX),
+                y: Math.round(center.y - h / 2 + jitterY),
+            };
         }
         const screenW = window.innerWidth;
         const screenH = window.innerHeight;

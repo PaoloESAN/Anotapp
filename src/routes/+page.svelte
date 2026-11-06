@@ -11,6 +11,8 @@
     import SettingsModal from "$lib/components/modals/SettingsModal.svelte";
     import OcrResultModal from "$lib/components/modals/OcrResultModal.svelte";
     import CanvasBackground from "$lib/components/CanvasBackground.svelte";
+    import CanvasControls from "$lib/components/CanvasControls.svelte";
+    import CanvasMinimap from "$lib/components/CanvasMinimap.svelte";
     import WorkspacesBar from "$lib/components/WorkspacesBar.svelte";
     import CardContextMenu from "$lib/components/CardContextMenu.svelte";
     import ScannerView from "$lib/components/ScannerView.svelte";
@@ -574,34 +576,59 @@
                 {/if}
             </div>
         {:else}
-            <!-- DESKTOP / TABLET CANVAS VIEW -->
-            <EmptyState
-                isReady={desktopState.isReady}
-                hasItems={desktopState.items.length > 0}
-            />
+            <!-- INFINITE CANVAS VIEW (DESKTOP & MOBILE CANVAS MODE) -->
+            <div
+                role="region"
+                aria-label="Lienzo infinito"
+                class="flex-1 relative overflow-hidden w-full h-full touch-none select-none {interactionManager.isPanning ? 'cursor-grabbing' : interactionManager.isSpacePressed ? 'cursor-grab' : 'cursor-default'}"
+                onpointerdown={(e) => interactionManager.onCanvasPointerDown(e)}
+                onwheel={(e) => interactionManager.onCanvasWheel(e)}
+            >
+                <!-- World transformation layer -->
+                <div
+                    class="absolute top-0 left-0 w-full h-full pointer-events-none"
+                    style="
+                        transform: translate3d({interactionManager.pan.x}px, {interactionManager.pan.y}px, 0px) scale({interactionManager.zoom});
+                        transform-origin: 0 0;
+                    "
+                >
+                    <EmptyState
+                        isReady={desktopState.isReady}
+                        hasItems={desktopState.items.length > 0}
+                    />
 
-            {#each desktopState.items as _, i (desktopState.items[i].id)}
-                <ClipboardCard
-                    bind:item={desktopState.items[i]}
-                    onBringToFront={(id) => {
-                        const item = desktopState.items.find((i) => i.id === id);
-                        if (item) item.z = desktopState.maxZ++;
-                    }}
-                    onDragStart={(e, id) => interactionManager.onDragStart(e, id)}
-                    onResizeStart={(e, id, dir) =>
-                        interactionManager.onResizeStart(e, id, dir)}
-                    {onDelete}
-                    {onCopy}
-                    {onScanText}
-                    hideHeaders={desktopState.hideHeaders}
-                    hideCardButtons={desktopState.hideCardButtons}
-                />
-            {/each}
+                    {#each desktopState.items as _, i (desktopState.items[i].id)}
+                        <ClipboardCard
+                            bind:item={desktopState.items[i]}
+                            onBringToFront={(id) => {
+                                const item = desktopState.items.find((i) => i.id === id);
+                                if (item) item.z = desktopState.maxZ++;
+                            }}
+                            onDragStart={(e, id) => interactionManager.onDragStart(e, id)}
+                            onResizeStart={(e, id, dir) =>
+                                interactionManager.onResizeStart(e, id, dir)}
+                            {onDelete}
+                            {onCopy}
+                            {onScanText}
+                            hideHeaders={desktopState.hideHeaders}
+                            hideCardButtons={desktopState.hideCardButtons}
+                        />
+                    {/each}
+                </div>
 
-            <!-- Desktop Bottom Workspace Bar -->
-            {#if !isMobile}
-                <WorkspacesBar />
-            {/if}
+                <!-- Floating Canvas Controls & Minimap -->
+                <div class="fixed {isMobile ? 'bottom-20 left-3' : 'bottom-6 left-6'} z-40 flex flex-col gap-2 items-start pointer-events-auto">
+                    {#if interactionManager.showMinimap}
+                        <CanvasMinimap />
+                    {/if}
+                    <CanvasControls />
+                </div>
+
+                <!-- Desktop Bottom Workspace Bar -->
+                {#if !isMobile}
+                    <WorkspacesBar />
+                {/if}
+            </div>
         {/if}
     </div>
 
