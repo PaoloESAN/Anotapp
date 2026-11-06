@@ -3,8 +3,6 @@
 	import favicon from "$lib/assets/favicon.svg";
 	import { ModeWatcher } from "mode-watcher";
 	import { onMount } from "svelte";
-	import { getCurrentWindow } from "@tauri-apps/api/window";
-
 	let { children } = $props();
 
 	onMount(() => {
@@ -22,14 +20,21 @@
 	async function handleKeydown(e: KeyboardEvent) {
 		if (e.key === "F11") {
 			e.preventDefault();
-			const win = getCurrentWindow();
-			const isFullscreen = await win.isFullscreen();
-			await win.setFullscreen(!isFullscreen);
+			if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+				try {
+					const { getCurrentWindow } = await import("@tauri-apps/api/window");
+					const win = getCurrentWindow();
+					const isFullscreen = await win.isFullscreen();
+					await win.setFullscreen(!isFullscreen);
+				} catch (err) {
+					console.error("Error setting fullscreen in Tauri:", err);
+				}
+			}
 		}
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} oncontextmenu={(e) => e.preventDefault()} />
+<svelte:window onkeydown={handleKeydown} oncontextmenu={(e) => { if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) e.preventDefault(); }} />
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 <ModeWatcher />
 {@render children()}

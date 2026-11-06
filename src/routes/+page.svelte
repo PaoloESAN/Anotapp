@@ -1,11 +1,5 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from "svelte";
-    import {
-        startListening,
-        onTextUpdate,
-        onImageUpdate,
-        onFilesUpdate,
-    } from "tauri-plugin-clipboard-api";
     import type { ClipboardItem } from "$lib/types";
     import ClipboardCard from "$lib/components/ClipboardCard.svelte";
     import EmptyState from "$lib/components/EmptyState.svelte";
@@ -82,6 +76,12 @@
         }) as EventListener);
 
         try {
+            const {
+                startListening,
+                onTextUpdate,
+                onImageUpdate,
+                onFilesUpdate,
+            } = await import("tauri-plugin-clipboard-api");
             stopListening = await startListening();
             await onTextUpdate((text) => {
                 if (desktopState.clipboardPaused) return;

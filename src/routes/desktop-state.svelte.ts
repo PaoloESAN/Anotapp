@@ -14,16 +14,22 @@ class DesktopState {
     ]);
     activeWorkspaceId = $state("ws-default");
 
-    get activeWorkspace() {
-        return this.workspaces.find(ws => ws.id === this.activeWorkspaceId) || this.workspaces[0];
+    get activeWorkspace(): Workspace {
+        const found = this.workspaces?.find(ws => ws.id === this.activeWorkspaceId);
+        if (found) return found;
+        if (this.workspaces && this.workspaces.length > 0) return this.workspaces[0];
+        const defaultWs: Workspace = { id: "ws-default", name: "Mesa 1", items: [] };
+        this.workspaces = [defaultWs];
+        this.activeWorkspaceId = defaultWs.id;
+        return defaultWs;
     }
 
-    get items() {
-        return this.activeWorkspace.items;
+    get items(): ClipboardItem[] {
+        return this.activeWorkspace?.items || [];
     }
 
     set items(newItems: ClipboardItem[]) {
-        const ws = this.workspaces.find(ws => ws.id === this.activeWorkspaceId);
+        const ws = this.workspaces?.find(ws => ws.id === this.activeWorkspaceId) || this.workspaces?.[0];
         if (ws) ws.items = newItems;
     }
 
@@ -93,25 +99,37 @@ class DesktopState {
     hostedFiles = new Map<string, File>();
     requestedFiles = new Set<string>();
 
+    private isInitialized = false;
+
     constructor() {
         if (typeof localStorage !== "undefined") {
             try {
                 const savedWS = localStorage.getItem("anotapp-workspaces");
                 if (savedWS) {
-                    this.workspaces = JSON.parse(savedWS);
-                    // Calculate maxZ across all workspaces
-                    let currentMaxZ = 1;
-                    this.workspaces.forEach(ws => {
-                        ws.items.forEach(item => {
-                            if (item.z && item.z >= currentMaxZ) currentMaxZ = item.z + 1;
-                        });
-                    });
-                    this.maxZ = currentMaxZ;
+                    try {
+                        const parsed = JSON.parse(savedWS);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            this.workspaces = parsed;
+                            // Calculate maxZ across all workspaces
+                            let currentMaxZ = 1;
+                            this.workspaces.forEach(ws => {
+                                if (!Array.isArray(ws.items)) ws.items = [];
+                                ws.items.forEach(item => {
+                                    if (item.z && item.z >= currentMaxZ) currentMaxZ = item.z + 1;
+                                });
+                            });
+                            this.maxZ = currentMaxZ;
+                        }
+                    } catch (parseErr) {
+                        console.warn("Could not parse saved workspaces:", parseErr);
+                    }
                 }
 
                 const savedActiveWS = localStorage.getItem("anotapp-active-ws");
                 if (savedActiveWS && this.workspaces.find(ws => ws.id === savedActiveWS)) {
                     this.activeWorkspaceId = savedActiveWS;
+                } else if (this.workspaces[0]) {
+                    this.activeWorkspaceId = this.workspaces[0].id;
                 }
 
                 const savedHeaders = localStorage.getItem("anotapp-hide-headers");
@@ -132,6 +150,8 @@ class DesktopState {
     }
 
     initSerialization() {
+        if (this.isInitialized) return;
+        this.isInitialized = true;
         $effect(() => {
             const serializedWS = JSON.stringify(this.workspaces);
             const activeWS = this.activeWorkspaceId;

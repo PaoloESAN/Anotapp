@@ -1,18 +1,29 @@
 <script lang="ts">
-    import { getCurrentWindow } from "@tauri-apps/api/window";
-
-    const window = getCurrentWindow();
-
-    function minimize() {
-        window.minimize();
+    async function getWin() {
+        if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+            try {
+                const { getCurrentWindow } = await import("@tauri-apps/api/window");
+                return getCurrentWindow();
+            } catch (err) {
+                console.error("Failed to load Tauri window:", err);
+            }
+        }
+        return null;
     }
 
-    function toggleMaximize() {
-        window.toggleMaximize();
+    async function minimize() {
+        const win = await getWin();
+        win?.minimize();
     }
 
-    function closeWindow() {
-        window.close();
+    async function toggleMaximize() {
+        const win = await getWin();
+        win?.toggleMaximize();
+    }
+
+    async function closeWindow() {
+        const win = await getWin();
+        win?.close();
     }
 </script>
 
