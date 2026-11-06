@@ -1,0 +1,15 @@
+{
+  "name": "anotapp-server",
+  "version": "1.0.0",
+  "description": "Servidor WebSocket y API en Elysia v2 para sincronización en tiempo real de Anotapp",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.3",
+    "elysia": "2.0.0-rc.3"
+  }
+}
