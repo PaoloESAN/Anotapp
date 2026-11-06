@@ -1,6 +1,6 @@
 import { type ClipboardItem } from "$lib/types";
 import { createWorker } from "tesseract.js";
-import { syncService } from "$lib/sync-service";
+import { syncService } from "$lib/sync-service.svelte";
 
 export interface Workspace {
     id: string;

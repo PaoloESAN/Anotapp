@@ -22,11 +22,11 @@
 
     function getLiteUrl() {
         const envLite = (import.meta.env.PUBLIC_LITE_URL as string) || (import.meta.env.PUBLIC_MOBILE_URL as string);
-        if (envLite) return envLite;
+        if (envLite) return envLite.replace(/\/lite\/?$/, "");
         if (typeof window !== "undefined") {
-            return `${window.location.origin}/lite`;
+            return window.location.origin;
         }
-        return "http://localhost:5173/lite";
+        return "https://anotapp-web.vercel.app";
     }
 
     $effect(() => {

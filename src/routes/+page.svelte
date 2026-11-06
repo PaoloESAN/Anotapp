@@ -13,12 +13,51 @@
     import CanvasBackground from "$lib/components/CanvasBackground.svelte";
     import WorkspacesBar from "$lib/components/WorkspacesBar.svelte";
     import CardContextMenu from "$lib/components/CardContextMenu.svelte";
+    import ScannerView from "$lib/components/ScannerView.svelte";
     import { desktopState } from "./desktop-state.svelte";
     import { interactionManager } from "./interaction-manager.svelte";
+    import { syncService } from "$lib/sync-service.svelte";
+
+    // UI Icons
+    import QrCode from "@lucide/svelte/icons/qr-code";
+    import Camera from "@lucide/svelte/icons/camera";
+    import ImagePlus from "@lucide/svelte/icons/image-plus";
+    import Paperclip from "@lucide/svelte/icons/paperclip";
+    import FileIcon from "@lucide/svelte/icons/file";
+    import ArrowUp from "@lucide/svelte/icons/arrow-up";
+    import Loader2 from "@lucide/svelte/icons/loader-2";
+    import Check from "@lucide/svelte/icons/check";
+    import Copy from "@lucide/svelte/icons/copy";
+    import Trash2 from "@lucide/svelte/icons/trash-2";
+    import Pen from "@lucide/svelte/icons/pen";
+    import ScanText from "@lucide/svelte/icons/scan-text";
+    import Download from "@lucide/svelte/icons/download";
+    import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+    import List from "@lucide/svelte/icons/list";
+    import Settings from "@lucide/svelte/icons/settings";
+    import Plus from "@lucide/svelte/icons/plus";
+    import X from "@lucide/svelte/icons/x";
+    import Unplug from "@lucide/svelte/icons/unplug";
+    import ChevronDown from "@lucide/svelte/icons/chevron-down";
+
+    // UI Components
+    import { Button } from "$lib/components/ui/button";
+    import { Input } from "$lib/components/ui/input";
+    import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+    import * as Dialog from "$lib/components/ui/dialog";
 
     desktopState.initSerialization();
 
     let isSettingsOpen = $state(false);
+    let isMobile = $state(false);
+    let isTauri = $state(false);
+    let mobileViewMode = $state<"cards" | "canvas">("cards");
+    let mobileTextInput = $state("");
+    let isUploading = $state(false);
+    let isScanModalOpen = $state(false);
+    let manualCodeInput = $state("");
+    let isScannerActive = $state(false);
+    let copiedNoteId = $state<string | null>(null);
 
     let stopListening: (() => Promise<void>) | null = null;
 
@@ -31,6 +70,39 @@
         desktopState.ocrImageSrc = item.content;
         desktopState.ocrText = "";
         desktopState.isOcrModalOpen = true;
+    }
+
+    async function onCopy(item: ClipboardItem) {
+        try {
+            if (isTauri) {
+                const {
+                    writeText,
+                    writeImageBase64,
+                    writeFilesURIs,
+                } = await import("tauri-plugin-clipboard-api");
+
+                if (item.type === "text" && item.content) {
+                    await writeText(item.content);
+                    desktopState.lastText = item.content;
+                } else if (item.type === "image" && item.content) {
+                    const b64 = item.content.replace(/^data:[^;]+;base64,/, "");
+                    await writeImageBase64(b64);
+                    desktopState.lastImageB64Len = b64.length;
+                } else if (item.type === "files" && item.files?.length) {
+                    await writeFilesURIs(item.files);
+                    desktopState.lastFilesKey = [...item.files].sort().join("|");
+                }
+            } else {
+                if (item.type === "text" && item.content && navigator.clipboard) {
+                    await navigator.clipboard.writeText(item.content);
+                    desktopState.lastText = item.content;
+                    copiedNoteId = item.id;
+                    setTimeout(() => (copiedNoteId = null), 2000);
+                }
+            }
+        } catch (err) {
+            console.log("Error al copiar al portapapeles:", err);
+        }
     }
 
     async function handleGlobalContextMenu(e: MouseEvent) {
@@ -61,13 +133,15 @@
         }
     }
 
-    onMount(async () => {
-        // Si se abre desde un navegador web (fuera de Tauri), redirigir a /lite
-        if (typeof window !== "undefined" && !(window as any).__TAURI_INTERNALS__) {
-            window.location.replace("/lite");
-            return;
+    function checkScreenSize() {
+        if (typeof window !== "undefined") {
+            isMobile = window.innerWidth < 768;
         }
+    }
 
+    onMount(async () => {
+        checkScreenSize();
+        window.addEventListener("resize", checkScreenSize);
         window.addEventListener("contextmenu", handleGlobalContextMenu, {
             capture: true,
         });
@@ -75,85 +149,177 @@
             desktopState.customBgImage = e.detail;
         }) as EventListener);
 
-        try {
-            const {
-                startListening,
-                onTextUpdate,
-                onImageUpdate,
-                onFilesUpdate,
-            } = await import("tauri-plugin-clipboard-api");
-            stopListening = await startListening();
-            await onTextUpdate((text) => {
-                if (desktopState.clipboardPaused) return;
-                if (!text || text === desktopState.lastText) return;
-                if (
-                    desktopState.items.find(
-                        (i) => i.type === "text" && i.content === text,
+        isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+
+        // Si estamos en Tauri desktop, activar listeners nativos del portapapeles
+        if (isTauri) {
+            try {
+                const {
+                    startListening,
+                    onTextUpdate,
+                    onImageUpdate,
+                    onFilesUpdate,
+                } = await import("tauri-plugin-clipboard-api");
+
+                stopListening = await startListening();
+                await onTextUpdate((text) => {
+                    if (desktopState.clipboardPaused) return;
+                    if (!text || text === desktopState.lastText) return;
+                    if (
+                        desktopState.items.find(
+                            (i) => i.type === "text" && i.content === text,
+                        )
                     )
-                )
-                    return;
-                desktopState.lastText = text;
-                desktopState.addItem({ type: "text", content: text });
-            });
-            await onImageUpdate((b64) => {
-                if (!desktopState.clipboardPaused)
-                    desktopState.handleImageUpdate(b64);
-            });
-            await onFilesUpdate((files) => {
-                if (!desktopState.clipboardPaused)
-                    desktopState.handleFilesUpdate(files);
-            });
-        } catch (err) {
-            console.warn("Listeners de portapapeles de Tauri no disponibles:", err);
+                        return;
+                    desktopState.lastText = text;
+                    desktopState.addItem({ type: "text", content: text });
+                });
+                await onImageUpdate((b64) => {
+                    if (!desktopState.clipboardPaused)
+                        desktopState.handleImageUpdate(b64);
+                });
+                await onFilesUpdate((files) => {
+                    if (!desktopState.clipboardPaused)
+                        desktopState.handleFilesUpdate(files);
+                });
+            } catch (err) {
+                console.warn("Listeners nativos de portapapeles no disponibles:", err);
+            }
         }
 
-        // Initialize Sync Server connection
+        // Auto-conexión si hay parámetro room o peerId en la URL o sessionStorage
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomParam = urlParams.get("room") || urlParams.get("peerId") || "";
+
+        if (!roomParam && typeof sessionStorage !== "undefined") {
+            roomParam = sessionStorage.getItem("anotapp_room") || "";
+        }
+
         try {
-            await desktopState.registerPeerMapping();
+            if (roomParam) {
+                const upper = roomParam.trim().toUpperCase();
+                sessionStorage.setItem("anotapp_room", upper);
+                await syncService.connectToRoom(upper);
+            } else {
+                // Registrar sala como host por defecto
+                await desktopState.registerPeerMapping();
+            }
         } catch (err) {
-            console.error("Failed to initialize sync server:", err);
+            console.error("Error al inicializar conexión con servidor:", err);
         }
 
         setTimeout(() => (desktopState.isReady = true), 300);
     });
 
     onDestroy(async () => {
-        window.removeEventListener("contextmenu", handleGlobalContextMenu, {
-            capture: true,
-        });
+        if (typeof window !== "undefined") {
+            window.removeEventListener("resize", checkScreenSize);
+            window.removeEventListener("contextmenu", handleGlobalContextMenu, {
+                capture: true,
+            });
+        }
         if (stopListening) await stopListening();
     });
 
-    async function onCopy(item: ClipboardItem) {
+    function sendQuickText() {
+        const text = mobileTextInput.trim();
+        if (!text) return;
+        desktopState.addItem({
+            type: "text",
+            content: text,
+        });
+        mobileTextInput = "";
+    }
+
+    async function handleFileUpload(e: Event) {
+        const target = e.target as HTMLInputElement;
+        const file = target.files?.[0];
+        if (!file) return;
+
+        isUploading = true;
         try {
-            if (item.type === "text") {
-                const { writeText } = await import(
-                    "tauri-plugin-clipboard-api"
-                );
-                await writeText(item.content);
-                desktopState.lastText = item.content;
-            } else if (item.type === "image") {
-                const { writeImageBase64 } = await import(
-                    "tauri-plugin-clipboard-api"
-                );
-                const b64 = item.content.replace(/^data:[^;]+;base64,/, "");
-                await writeImageBase64(b64);
-                desktopState.lastImageB64Len = b64.length;
-            } else if (item.type === "files" && item.files?.length) {
-                const { writeFilesURIs } = await import(
-                    "tauri-plugin-clipboard-api"
-                );
-                await writeFilesURIs(item.files);
-                desktopState.lastFilesKey = [...item.files].sort().join("|");
+            const isImage = file.type.startsWith("image/");
+            const uploadRes = await syncService.uploadFile(file);
+
+            if (isImage) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const dataUrl = event.target?.result as string;
+                    desktopState.addItem({
+                        type: "image",
+                        content: dataUrl,
+                        name: file.name,
+                        downloadUrl: uploadRes.downloadUrl,
+                    });
+                };
+                reader.readAsDataURL(file);
+            } else {
+                desktopState.addItem({
+                    type: "peer-file",
+                    content: "",
+                    name: file.name,
+                    size: file.size,
+                    fileId: uploadRes.fileId || crypto.randomUUID(),
+                    downloadUrl: uploadRes.downloadUrl,
+                });
             }
         } catch (err) {
-            console.log(err);
+            console.error("Error al procesar archivo:", err);
+            if (file.type.startsWith("image/")) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    desktopState.addItem({
+                        type: "image",
+                        content: event.target?.result as string,
+                        name: file.name,
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        } finally {
+            isUploading = false;
+            target.value = "";
         }
+    }
+
+    async function handleConnectManual(e?: Event) {
+        if (e) e.preventDefault();
+        const code = manualCodeInput.trim().toUpperCase();
+        if (!code) return;
+
+        try {
+            await syncService.connectToRoom(code);
+            sessionStorage.setItem("anotapp_room", code);
+            manualCodeInput = "";
+            isScanModalOpen = false;
+        } catch (err) {
+            alert("Error al conectar a la sala: " + err);
+        }
+    }
+
+    function handleScanResult(scanned: string) {
+        try {
+            const url = new URL(scanned);
+            const roomCode = url.searchParams.get("room") || url.searchParams.get("peerId");
+            if (roomCode) {
+                manualCodeInput = roomCode;
+                handleConnectManual();
+                isScannerActive = false;
+                return;
+            }
+        } catch {}
+
+        if (scanned && scanned.length > 0) {
+            manualCodeInput = scanned.trim().toUpperCase();
+            handleConnectManual();
+        }
+        isScannerActive = false;
     }
 </script>
 
 <svelte:head>
     <title>Anotapp</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
 </svelte:head>
 
 <svelte:window
@@ -163,50 +329,371 @@
 />
 
 <main
-    class="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 relative font-sans isolate selection:bg-primary/30 transition-colors duration-500"
+    class="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 relative font-sans isolate selection:bg-primary/30 transition-colors duration-500 flex flex-col"
 >
+    <!-- Background visual canvas -->
     <CanvasBackground />
 
-    {#if desktopState.hostConnection}
-        <div
-            class="absolute top-6 left-1/2 -translate-x-1/2 z-100 bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 px-4 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 backdrop-blur-md shadow-sm select-none pointer-events-none transition-all"
-        >
-            <span
-                class="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"
-            ></span>
-            Conectado a:
-            <span
-                class="font-mono tracking-widest text-green-700 dark:text-green-300"
-                >{desktopState.connectedHostCode}</span
+    {#if isTauri}
+        <Titlebar />
+    {/if}
+
+    <!-- ============================================== -->
+    <!-- TOP BAR (RESPONSIVE: DESKTOP & MOBILE)        -->
+    <!-- ============================================== -->
+    <header class="h-14 w-full flex items-center justify-between px-3 sm:px-6 z-50 backdrop-blur-md bg-white/40 dark:bg-zinc-950/40 border-b border-slate-200/50 dark:border-zinc-800/50 shrink-0">
+        <!-- Logo / App Name -->
+        <div class="flex items-center gap-2">
+            <span class="font-bold tracking-tight text-lg text-slate-800 dark:text-zinc-100 flex items-center gap-1.5">
+                <span>Anotapp</span>
+            </span>
+        </div>
+
+        <!-- Center / Workspace Switcher (Mobile & Compact) -->
+        <div class="flex items-center gap-1 sm:gap-2">
+            {#if isMobile}
+                <DropdownMenu.Root>
+                    <DropdownMenu.Trigger>
+                        {#snippet child({ props })}
+                            <Button {...props} variant="outline" size="sm" class="h-8 rounded-full text-xs font-medium gap-1.5 bg-background/60">
+                                <span>{desktopState.activeWorkspace.name}</span>
+                                <ChevronDown class="w-3.5 h-3.5 opacity-60" />
+                            </Button>
+                        {/snippet}
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Content align="center" class="w-44 rounded-xl">
+                        {#each desktopState.workspaces as ws (ws.id)}
+                            <DropdownMenu.Item
+                                onclick={() => (desktopState.activeWorkspaceId = ws.id)}
+                                class="cursor-pointer text-xs justify-between"
+                            >
+                                <span class={ws.id === desktopState.activeWorkspaceId ? "font-bold text-primary" : ""}>
+                                    {ws.name}
+                                </span>
+                                {#if ws.id === desktopState.activeWorkspaceId}
+                                    <Check class="w-3.5 h-3.5 text-primary" />
+                                {/if}
+                            </DropdownMenu.Item>
+                        {/each}
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item
+                            onclick={() => {
+                                const newId = "ws-" + Date.now();
+                                const newNum = desktopState.workspaces.length + 1;
+                                desktopState.workspaces = [
+                                    ...desktopState.workspaces,
+                                    { id: newId, name: `Mesa ${newNum}`, items: [] },
+                                ];
+                                desktopState.activeWorkspaceId = newId;
+                            }}
+                            class="cursor-pointer text-xs gap-1.5 text-primary"
+                        >
+                            <Plus class="w-3.5 h-3.5" />
+                            <span>Nueva Mesa</span>
+                        </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                </DropdownMenu.Root>
+            {/if}
+
+            <!-- Connection Status Badge / Vincular Button -->
+            {#if syncService.status === "connected" && syncService.roomCode}
+                <button
+                    onclick={() => (isMobile ? (isScanModalOpen = true) : (desktopState.isMobileLinkOpen = true))}
+                    class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all cursor-pointer shadow-xs"
+                    title="Sala activa. Haz clic para ver detalles"
+                >
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span class="font-mono tracking-wider">{syncService.roomCode}</span>
+                    {#if syncService.deviceCount > 1}
+                        <span class="text-[10px] bg-green-500/20 px-1 rounded-sm ml-0.5">{syncService.deviceCount}</span>
+                    {/if}
+                </button>
+            {:else if syncService.status === "connecting" || syncService.status === "reconnecting"}
+                <div class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                    <span>Conectando...</span>
+                </div>
+            {:else}
+                <button
+                    onclick={() => (isMobile ? (isScanModalOpen = true) : (desktopState.isMobileLinkOpen = true))}
+                    class="h-8 px-3 rounded-full text-xs font-semibold flex items-center gap-1.5 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all cursor-pointer shadow-xs"
+                >
+                    <QrCode class="w-3.5 h-3.5" />
+                    <span>Vincular</span>
+                </button>
+            {/if}
+        </div>
+
+        <!-- Right / Actions -->
+        <div class="flex items-center gap-1 sm:gap-2">
+            {#if isMobile}
+                <!-- Toggle View Mode: Feed vs Canvas -->
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 rounded-full"
+                    onclick={() => (mobileViewMode = mobileViewMode === "cards" ? "canvas" : "cards")}
+                    title={mobileViewMode === "cards" ? "Ver Lienzo infinito" : "Ver Lista de tarjetas"}
+                >
+                    {#if mobileViewMode === "cards"}
+                        <LayoutGrid class="w-4 h-4 text-slate-700 dark:text-zinc-300" />
+                    {:else}
+                        <List class="w-4 h-4 text-slate-700 dark:text-zinc-300" />
+                    {/if}
+                </Button>
+
+                <!-- Escanear QR Button -->
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    class="h-8 w-8 rounded-full"
+                    onclick={() => (isScanModalOpen = true)}
+                    title="Vincular / Escanear QR"
+                >
+                    <QrCode class="w-4 h-4 text-slate-700 dark:text-zinc-300" />
+                </Button>
+            {/if}
+
+            <!-- Settings Button -->
+            <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 rounded-full"
+                onclick={() => (isSettingsOpen = true)}
+                title="Configuración"
             >
+                <Settings class="w-4 h-4 text-slate-700 dark:text-zinc-300" />
+            </Button>
+        </div>
+    </header>
+
+    <!-- ============================================== -->
+    <!-- MAIN CONTENT VIEW                             -->
+    <!-- ============================================== -->
+    <div class="flex-1 relative overflow-hidden w-full h-full flex flex-col">
+        {#if isMobile && mobileViewMode === "cards"}
+            <!-- MOBILE CARDS FEED VIEW (TOUCH-OPTIMIZED) -->
+            <div class="flex-1 overflow-y-auto px-4 py-4 pb-28 space-y-3 custom-scrollbar">
+                {#if desktopState.items.length === 0}
+                    <div class="h-64 flex flex-col items-center justify-center text-center p-6 text-slate-400 dark:text-zinc-500">
+                        <div class="w-12 h-12 rounded-2xl bg-slate-200/50 dark:bg-zinc-800/50 flex items-center justify-center mb-3 text-slate-500 dark:text-zinc-400">
+                            <Pen class="w-6 h-6 stroke-1.5" />
+                        </div>
+                        <p class="font-semibold text-sm text-slate-700 dark:text-zinc-300">Mesa vacía</p>
+                        <p class="text-xs text-slate-500 dark:text-zinc-500 max-w-xs mt-1">
+                            Envía notas, imágenes o archivos usando la barra inferior o escanea el QR de tu PC para sincronizar.
+                        </p>
+                    </div>
+                {:else}
+                    {#each desktopState.items as item (item.id)}
+                        <div class="w-full bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-2xl p-4 border border-slate-200/80 dark:border-zinc-800/80 shadow-xs flex flex-col gap-2 transition-all">
+                            <!-- Card Header -->
+                            <div class="flex items-center justify-between text-xs text-slate-400 dark:text-zinc-500 pb-1 border-b border-slate-100 dark:border-zinc-800/50">
+                                <span class="capitalize font-medium text-[11px] tracking-wide text-primary">
+                                    {item.type === "text" ? "Nota de texto" : item.type === "image" ? "Imagen" : "Archivo"}
+                                </span>
+                                <div class="flex items-center gap-1">
+                                    <button
+                                        onclick={() => onCopy(item)}
+                                        class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors"
+                                        title="Copiar"
+                                    >
+                                        {#if copiedNoteId === item.id}
+                                            <Check class="w-3.5 h-3.5 text-green-500" />
+                                        {:else}
+                                            <Copy class="w-3.5 h-3.5" />
+                                        {/if}
+                                    </button>
+                                    {#if item.type === "image"}
+                                        <button
+                                            onclick={() => onScanText(item)}
+                                            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors"
+                                            title="Extraer texto OCR"
+                                        >
+                                            <ScanText class="w-3.5 h-3.5" />
+                                        </button>
+                                    {/if}
+                                    <button
+                                        onclick={() => onDelete(item.id)}
+                                        class="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 transition-colors"
+                                        title="Eliminar"
+                                    >
+                                        <Trash2 class="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Card Body -->
+                            {#if item.type === "text"}
+                                <div class="text-sm font-sans whitespace-pre-wrap break-words leading-relaxed text-slate-800 dark:text-zinc-100 max-h-48 overflow-y-auto">
+                                    {item.content}
+                                </div>
+                            {:else if item.type === "image"}
+                                <div class="w-full rounded-xl overflow-hidden bg-slate-100 dark:bg-zinc-950 flex items-center justify-center border border-slate-200/50 dark:border-zinc-800/50">
+                                    <img
+                                        src={item.content}
+                                        alt={item.name || "Imagen"}
+                                        class="max-h-64 w-auto object-contain"
+                                        loading="lazy"
+                                    />
+                                </div>
+                                {#if item.downloadUrl}
+                                    <a
+                                        href={item.downloadUrl}
+                                        target="_blank"
+                                        download={item.name || "imagen.png"}
+                                        class="inline-flex items-center gap-1.5 text-xs text-primary font-medium hover:underline pt-1"
+                                    >
+                                        <Download class="w-3.5 h-3.5" />
+                                        <span>Descargar imagen original</span>
+                                    </a>
+                                {/if}
+                            {:else}
+                                <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200/50 dark:border-zinc-800/50">
+                                    <div class="p-2.5 rounded-lg bg-primary/10 text-primary">
+                                        <FileIcon class="w-5 h-5" />
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-xs font-semibold truncate text-slate-800 dark:text-zinc-100">
+                                            {item.name || "Archivo compartido"}
+                                        </p>
+                                        {#if item.size}
+                                            <p class="text-[11px] text-slate-400 dark:text-zinc-500">
+                                                {(item.size / 1024).toFixed(1)} KB
+                                            </p>
+                                        {/if}
+                                    </div>
+                                    {#if item.downloadUrl}
+                                        <a
+                                            href={item.downloadUrl}
+                                            target="_blank"
+                                            download={item.name || "archivo"}
+                                            class="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs"
+                                        >
+                                            <Download class="w-4 h-4" />
+                                        </a>
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
+                    {/each}
+                {/if}
+            </div>
+        {:else}
+            <!-- DESKTOP / TABLET CANVAS VIEW -->
+            <EmptyState
+                isReady={desktopState.isReady}
+                hasItems={desktopState.items.length > 0}
+            />
+
+            {#each desktopState.items as _, i (desktopState.items[i].id)}
+                <ClipboardCard
+                    bind:item={desktopState.items[i]}
+                    onBringToFront={(id) => {
+                        const item = desktopState.items.find((i) => i.id === id);
+                        if (item) item.z = desktopState.maxZ++;
+                    }}
+                    onDragStart={(e, id) => interactionManager.onDragStart(e, id)}
+                    onResizeStart={(e, id, dir) =>
+                        interactionManager.onResizeStart(e, id, dir)}
+                    {onDelete}
+                    {onCopy}
+                    {onScanText}
+                    hideHeaders={desktopState.hideHeaders}
+                    hideCardButtons={desktopState.hideCardButtons}
+                />
+            {/each}
+
+            <!-- Desktop Bottom Workspace Bar -->
+            {#if !isMobile}
+                <WorkspacesBar />
+            {/if}
+        {/if}
+    </div>
+
+    <!-- ============================================== -->
+    <!-- MOBILE QUICK SEND & ATTACHMENT BAR            -->
+    <!-- ============================================== -->
+    {#if isMobile}
+        <div class="fixed bottom-0 left-0 right-0 z-50 p-3 backdrop-blur-xl bg-white/80 dark:bg-zinc-950/80 border-t border-slate-200/50 dark:border-zinc-800/50 shadow-lg pb-safe">
+            <div class="max-w-xl mx-auto flex items-center gap-1.5">
+                <!-- Camera Button -->
+                <label class="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 active:scale-95 transition-all cursor-pointer">
+                    <Camera class="w-4 h-4" />
+                    <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        class="hidden"
+                        onchange={handleFileUpload}
+                        disabled={isUploading}
+                    />
+                </label>
+
+                <!-- Gallery Photo Button -->
+                <label class="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 active:scale-95 transition-all cursor-pointer">
+                    <ImagePlus class="w-4 h-4" />
+                    <input
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        onchange={handleFileUpload}
+                        disabled={isUploading}
+                    />
+                </label>
+
+                <!-- Any File Button -->
+                <label class="h-10 w-10 shrink-0 rounded-full flex items-center justify-center bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 active:scale-95 transition-all cursor-pointer">
+                    <Paperclip class="w-4 h-4" />
+                    <input
+                        type="file"
+                        class="hidden"
+                        onchange={handleFileUpload}
+                        disabled={isUploading}
+                    />
+                </label>
+
+                <!-- Text Input -->
+                <div class="flex-1 relative flex items-center">
+                    <input
+                        type="text"
+                        placeholder={isUploading ? "Subiendo archivo..." : "Escribe una nota rápida..."}
+                        bind:value={mobileTextInput}
+                        onkeydown={(e) => e.key === "Enter" && sendQuickText()}
+                        disabled={isUploading}
+                        class="w-full h-10 pl-3.5 pr-10 rounded-full text-xs bg-slate-100/90 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all"
+                    />
+                    <button
+                        onclick={sendQuickText}
+                        disabled={!mobileTextInput.trim() || isUploading}
+                        class="absolute right-1 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 disabled:pointer-events-none active:scale-90 transition-all shadow-xs"
+                    >
+                        <ArrowUp class="w-4 h-4 stroke-2" />
+                    </button>
+                </div>
+            </div>
         </div>
     {/if}
 
-    <EmptyState
-        isReady={desktopState.isReady}
-        hasItems={desktopState.items.length > 0}
-    />
-
-    {#each desktopState.items as _, i (desktopState.items[i].id)}
-        <ClipboardCard
-            bind:item={desktopState.items[i]}
-            onBringToFront={(id) => {
-                const item = desktopState.items.find((i) => i.id === id);
-                if (item) item.z = desktopState.maxZ++;
-            }}
-            onDragStart={(e, id) => interactionManager.onDragStart(e, id)}
-            onResizeStart={(e, id, dir) =>
-                interactionManager.onResizeStart(e, id, dir)}
-            {onDelete}
-            {onCopy}
-            {onScanText}
-            hideHeaders={desktopState.hideHeaders}
-            hideCardButtons={desktopState.hideCardButtons}
+    <!-- ============================================== -->
+    <!-- DESKTOP ACTION BUTTONS                        -->
+    <!-- ============================================== -->
+    {#if !isMobile}
+        <ActionButtons
+            addEmptyText={() => desktopState.addEmptyText()}
+            openMobileLink={() => (desktopState.isMobileLinkOpen = true)}
+            onSettings={() => (isSettingsOpen = true)}
+            bind:hideHeaders={desktopState.hideHeaders}
+            bind:bgPattern={desktopState.bgPattern}
         />
-    {/each}
+        {#if isTauri}
+            <PauseButton bind:paused={desktopState.clipboardPaused} />
+        {/if}
+    {/if}
 
-    <Titlebar />
-
+    <!-- ============================================== -->
+    <!-- MODALS & DIALOGS                               -->
+    <!-- ============================================== -->
     <SettingsModal
         bind:open={isSettingsOpen}
         bind:hideHeaders={desktopState.hideHeaders}
@@ -214,17 +701,9 @@
         bind:bgPattern={desktopState.bgPattern}
     />
 
-    <ActionButtons
-        addEmptyText={() => desktopState.addEmptyText()}
-        openMobileLink={() => (desktopState.isMobileLinkOpen = true)}
-        onSettings={() => (isSettingsOpen = true)}
-        bind:hideHeaders={desktopState.hideHeaders}
-        bind:bgPattern={desktopState.bgPattern}
-    />
-
     <MobileLinkModal
         bind:open={desktopState.isMobileLinkOpen}
-        peerId={desktopState.hostConnection ? desktopState.connectedHostCode : desktopState.peerId}
+        peerId={syncService.roomCode}
     />
 
     <CardContextMenu {onCopy} {onDelete} {onScanText} />
@@ -240,21 +719,109 @@
         }}
     />
 
-    <PauseButton bind:paused={desktopState.clipboardPaused} />
-
-    <WorkspacesBar />
-
     <ClearAllAlert
         count={desktopState.items.length}
         onClear={() => (desktopState.items = [])}
     />
+
+    <!-- ============================================== -->
+    <!-- SCANNER / VINCULAR MODAL (MOBILE)              -->
+    <!-- ============================================== -->
+    <Dialog.Root bind:open={isScanModalOpen}>
+        <Dialog.Content class="sm:max-w-md w-[92vw] rounded-2xl p-5 border border-slate-200 dark:border-zinc-800">
+            <Dialog.Header>
+                <Dialog.Title class="text-base font-bold text-slate-800 dark:text-zinc-100 flex items-center gap-2">
+                    <QrCode class="w-5 h-5 text-primary" />
+                    <span>Vincular con tu Computadora</span>
+                </Dialog.Title>
+                <Dialog.Description class="text-xs text-slate-500 dark:text-zinc-400">
+                    Sincroniza tus notas y archivos en tiempo real con la aplicación de escritorio o web.
+                </Dialog.Description>
+            </Dialog.Header>
+
+            <div class="space-y-4 py-2">
+                <!-- Current Status -->
+                {#if syncService.status === "connected"}
+                    <div class="p-3 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                            <div>
+                                <p class="text-xs font-bold text-green-700 dark:text-green-400">Conectado a la sala</p>
+                                <p class="text-xs font-mono font-extrabold text-slate-700 dark:text-zinc-200">{syncService.roomCode}</p>
+                            </div>
+                        </div>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            class="h-7 text-xs rounded-lg gap-1"
+                            onclick={() => {
+                                syncService.disconnect();
+                                sessionStorage.removeItem("anotapp_room");
+                            }}
+                        >
+                            <Unplug class="w-3.5 h-3.5" />
+                            <span>Desconectar</span>
+                        </Button>
+                    </div>
+                {/if}
+
+                <!-- Camera QR Scanner View -->
+                {#if isScannerActive}
+                    <div class="space-y-2">
+                        <div class="w-full h-64 rounded-xl overflow-hidden bg-black relative border border-slate-200 dark:border-zinc-800">
+                            <ScannerView onScanComplete={handleScanResult} onCancel={() => (isScannerActive = false)} />
+                        </div>
+                        <Button
+                            variant="outline"
+                            class="w-full h-8 text-xs rounded-xl"
+                            onclick={() => (isScannerActive = false)}
+                        >
+                            Cancelar escáner
+                        </Button>
+                    </div>
+                {:else}
+                    <Button
+                        class="w-full h-11 rounded-xl text-xs font-semibold gap-2 bg-primary text-primary-foreground shadow-xs cursor-pointer"
+                        onclick={() => (isScannerActive = true)}
+                    >
+                        <Camera class="w-4 h-4" />
+                        <span>Escanear código QR de la pantalla</span>
+                    </Button>
+                {/if}
+
+                <div class="relative flex items-center justify-center">
+                    <span class="w-full border-t border-slate-200 dark:border-zinc-800"></span>
+                    <span class="absolute px-2 text-[10px] uppercase font-bold tracking-wider bg-background text-slate-400 dark:text-zinc-500">
+                        O ingresa el código manual
+                    </span>
+                </div>
+
+                <!-- Manual code form -->
+                <form onsubmit={handleConnectManual} class="flex items-center gap-2">
+                    <Input
+                        type="text"
+                        placeholder="Ej: AB12"
+                        bind:value={manualCodeInput}
+                        maxlength={10}
+                        class="h-10 text-center font-mono font-bold uppercase tracking-widest text-sm rounded-xl"
+                    />
+                    <Button
+                        type="submit"
+                        disabled={!manualCodeInput.trim()}
+                        class="h-10 px-4 rounded-xl text-xs font-semibold"
+                    >
+                        Conectar
+                    </Button>
+                </form>
+            </div>
+        </Dialog.Content>
+    </Dialog.Root>
 </main>
 
 <style>
     :global(html, body) {
         margin: 0;
         padding: 0;
-        background: #09090b;
         overflow: hidden;
         width: 100vw;
         height: 100vh;
@@ -268,5 +835,8 @@
     :global(.custom-scrollbar::-webkit-scrollbar-thumb) {
         background-color: #3f3f46;
         border-radius: 4px;
+    }
+    .pb-safe {
+        padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
     }
 </style>
