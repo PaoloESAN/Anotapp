@@ -632,6 +632,30 @@ class DesktopState {
         }
 
         if (data.type === "file-transfer-ready") {
+            // Si fue solicitado bajo demanda (al pulsar el botón Descargar), actualizamos la URL y disparamos descarga directa
+            if (data.isOnDemand || this.requestedFiles.has(data.fileId)) {
+                this.requestedFiles.delete(data.fileId);
+                for (const ws of this.workspaces) {
+                    const existing = ws.items.find((i) => i.fileId === data.fileId || i.id === data.fileId);
+                    if (existing) {
+                        existing.downloadUrl = data.downloadUrl;
+                    }
+                }
+                if (data.blob) {
+                    this.triggerDownload(data.blob, data.name);
+                }
+                return;
+            }
+
+            // Si ya existe la tarjeta con ese fileId, solo le asignamos el downloadUrl listo
+            for (const ws of this.workspaces) {
+                const existing = ws.items.find((i) => i.fileId === data.fileId);
+                if (existing) {
+                    existing.downloadUrl = data.downloadUrl;
+                    return;
+                }
+            }
+
             const isImage = data.isImage || (data.mimeType && data.mimeType.startsWith("image/"));
             if (isImage) {
                 this.addItem({
@@ -658,15 +682,9 @@ class DesktopState {
         if (data.type === "request-file-data" && data.fileId) {
             const file = this.hostedFiles.get(data.fileId);
             if (file) {
-                file.arrayBuffer().then(buffer => {
-                    this.broadcastToClients({
-                        type: "file-data",
-                        fileId: data.fileId,
-                        data: buffer,
-                        name: file.name,
-                        mimeType: file.type
-                    });
-                });
+                syncService.transferFile(file, undefined, data.fileId, true).catch((err) =>
+                    console.error("Error enviando archivo bajo demanda:", err)
+                );
             }
             return;
         }

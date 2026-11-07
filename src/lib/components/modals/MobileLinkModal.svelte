@@ -6,6 +6,9 @@
     import Check from "@lucide/svelte/icons/check";
     import Link from "@lucide/svelte/icons/link";
     import Unplug from "@lucide/svelte/icons/unplug";
+    import Share2 from "@lucide/svelte/icons/share-2";
+    import Loader2 from "@lucide/svelte/icons/loader-2";
+    import QrCode from "@lucide/svelte/icons/qr-code";
     import { desktopState } from "../../../routes/desktop-state.svelte";
     import { syncService } from "$lib/sync-service.svelte";
     import { Input } from "$lib/components/ui/input/index.js";
@@ -20,6 +23,7 @@
     let canvasStandalone = $state<HTMLCanvasElement>();
     let copied = $state(false);
     let targetPeerId = $state("");
+    let isStartingHost = $state(false);
 
     function getLiteUrl() {
         const envLite = (import.meta.env.PUBLIC_LITE_URL as string) || (import.meta.env.PUBLIC_MOBILE_URL as string);
@@ -30,18 +34,23 @@
         return "https://anotapp-web.vercel.app";
     }
 
-    $effect(() => {
-        if (open && !peerId && !syncService.roomCode) {
-            desktopState.registerPeerMapping();
+    async function handleStartSharing() {
+        if (isStartingHost) return;
+        isStartingHost = true;
+        try {
+            await desktopState.registerPeerMapping();
+        } finally {
+            isStartingHost = false;
         }
-    });
+    }
 
     $effect(() => {
         const activeCanvas = desktopState.hostConnection ? canvasConnected : canvasStandalone;
-        if (open && activeCanvas && peerId) {
+        const currentCode = peerId || syncService.roomCode;
+        if (open && activeCanvas && currentCode && syncService.status === "connected") {
             const baseUrl = getLiteUrl();
             const sep = baseUrl.includes("?") ? "&" : "?";
-            const url = `${baseUrl}${sep}room=${peerId}&peerId=${peerId}`;
+            const url = `${baseUrl}${sep}room=${currentCode}&peerId=${currentCode}`;
 
             QRCode.toCanvas(
                 activeCanvas,
@@ -62,8 +71,9 @@
     });
 
     function copyPeerId() {
-        if (peerId) {
-            navigator.clipboard.writeText(peerId);
+        const code = peerId || syncService.roomCode;
+        if (code) {
+            navigator.clipboard.writeText(code);
             copied = true;
             setTimeout(() => {
                 copied = false;
@@ -121,8 +131,7 @@
                             title="Desconectar"
                             class="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-full shrink-0"
                             onclick={() => {
-                                desktopState.hostConnection?.close();
-                                desktopState.hostConnection = null;
+                                syncService.disconnect();
                             }}
                         >
                             <Unplug class="w-4 h-4" />
@@ -142,7 +151,7 @@
                     ></canvas>
                 </div>
 
-                {#if peerId}
+                {#if peerId || syncService.roomCode}
                     <div class="text-center w-full">
                         <p
                             class="text-xs text-muted-foreground uppercase tracking-wider font-semibold"
@@ -152,7 +161,7 @@
                         <p
                             class="font-mono bg-muted px-5 py-2.5 rounded-full text-sm mt-1.5 select-all inline-block font-bold tracking-widest text-foreground border border-border/30 animate-in fade-in duration-300"
                         >
-                            {peerId}
+                            {peerId || syncService.roomCode}
                         </p>
                     </div>
                 {/if}
@@ -161,173 +170,164 @@
                 </p>
             </div>
         {:else}
-            <Tabs.Root value="mobile" class="w-full">
+            <Tabs.Root value="vincular" class="w-full">
                 <Tabs.List class="grid w-full grid-cols-2 mb-4">
-                    <Tabs.Trigger value="mobile">Celular</Tabs.Trigger>
-                    <Tabs.Trigger value="pc">Otros PCs</Tabs.Trigger>
+                    <Tabs.Trigger value="vincular">Vincular</Tabs.Trigger>
+                    <Tabs.Trigger value="compartir">Compartir PC</Tabs.Trigger>
                 </Tabs.List>
 
-                <!-- TAB: CELULAR -->
-                <Tabs.Content
-                    value="mobile"
-                    class="space-y-4 flex flex-col items-center"
-                >
-                    <div
-                        class="bg-white p-2 rounded-xl shadow-sm border border-slate-200 dark:border-zinc-800 flex items-center justify-center"
-                    >
-                        <canvas
-                            bind:this={canvasStandalone}
-                            class="block max-w-full h-auto rounded-md"
-                        ></canvas>
-                    </div>
-                    {#if peerId}
-                        <div class="text-center w-full">
-                            <p
-                                class="text-xs text-muted-foreground uppercase tracking-wider font-semibold"
-                            >
-                                ID de Conexión
-                            </p>
-                            <p
-                                class="font-mono bg-muted px-5 py-2.5 rounded-full text-sm mt-1.5 select-all inline-block font-bold tracking-widest"
-                            >
-                                {peerId}
-                            </p>
-                        </div>
-                    {/if}
-                    <p class="text-xs text-center text-muted-foreground">
-                        Escanea el código para enviar texto e imágenes desde tu
-                        celular.
-                    </p>
-                </Tabs.Content>
-
-                <!-- TAB: PCS -->
-                <Tabs.Content value="pc" class="space-y-6">
-                    <!-- PC Anfitrión -->
+                <!-- TAB 1: VINCULAR (CONECTARSE A OTRO PC / ANFITRIÓN) -->
+                <Tabs.Content value="vincular" class="space-y-5">
                     <div class="space-y-3">
                         <div>
                             <h4
                                 class="text-sm font-semibold flex items-center gap-2"
                             >
-                                <span class="w-2 h-2 rounded-full bg-green-500"
-                                ></span>
-                                PC Anfitrión
+                                <Link class="w-4 h-4 text-primary" />
+                                Vincular a otro PC
                             </h4>
                             <p class="text-xs text-muted-foreground mt-1">
-                                Comparte este ID para que otros PCs se conecten
-                                a tu lienzo. Límite sugerido: 10 dispositivos.
+                                Ingresa el código del PC anfitrión para sincronizar tu lienzo en tiempo real.
                             </p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <div
-                                class="font-mono font-bold tracking-widest text-center bg-muted flex-1 px-4 py-2.5 rounded-full text-sm truncate select-all"
-                            >
-                                {peerId || "Generando ID..."}
-                            </div>
+                        <form
+                            onsubmit={(e) => {
+                                e.preventDefault();
+                                connectToPC();
+                            }}
+                            class="flex flex-col gap-2.5"
+                        >
+                            <Input
+                                type="text"
+                                bind:value={targetPeerId}
+                                placeholder="Ej: A7X9F2"
+                                class="text-center font-mono font-bold tracking-widest uppercase rounded-full h-11"
+                            />
                             <Button
-                                variant="outline"
-                                size="icon"
-                                onclick={copyPeerId}
-                                class="rounded-full shrink-0"
-                                title="Copiar ID"
+                                type="submit"
+                                disabled={!targetPeerId.trim() || syncService.status === "connecting"}
+                                class="w-full rounded-full h-10 font-bold"
                             >
-                                {#if copied}
-                                    <Check class="w-4 h-4 text-green-500" />
+                                {#if syncService.status === "connecting" && !syncService.isHost}
+                                    <Loader2 class="w-4 h-4 mr-2 animate-spin" />
+                                    Conectando...
                                 {:else}
-                                    <Copy
-                                        class="w-4 h-4 text-muted-foreground"
-                                    />
+                                    Conectar al Anfitrión
                                 {/if}
                             </Button>
-                        </div>
+                        </form>
                     </div>
+                </Tabs.Content>
 
-                    {#if desktopState.clientConnections.length === 0}
-                        <div class="relative">
-                            <div class="absolute inset-0 flex items-center">
-                                <span class="w-full border-t border-muted"
-                                ></span>
-                            </div>
-                            <div
-                                class="relative flex justify-center text-xs uppercase"
-                            >
-                                <span
-                                    class="bg-background px-2 text-muted-foreground"
-                                    >O</span
-                                >
-                            </div>
+                <!-- TAB 2: COMPARTIR PC (INICIAR SALA ANFITRIÓN PARA CELULAR U OTROS PCS) -->
+                <Tabs.Content
+                    value="compartir"
+                    class="space-y-4 flex flex-col items-center"
+                >
+                    {#if syncService.status === "connected" && syncService.roomCode}
+                        <div
+                            class="bg-white p-2.5 rounded-2xl shadow-sm border border-slate-200 dark:border-zinc-800 flex items-center justify-center animate-in fade-in duration-200"
+                        >
+                            <canvas
+                                bind:this={canvasStandalone}
+                                class="block max-w-full h-auto rounded-md"
+                            ></canvas>
                         </div>
 
-                        <!-- Vincular a PC -->
-                        <div class="space-y-3">
-                            <div>
-                                <h4
-                                    class="text-sm font-semibold flex items-center gap-2"
+                        <div class="w-full space-y-2">
+                            <p
+                                class="text-xs text-center text-muted-foreground uppercase tracking-wider font-semibold"
+                            >
+                                Código de este PC
+                            </p>
+                            <div class="flex items-center gap-2">
+                                <div
+                                    class="font-mono font-bold tracking-widest text-center bg-muted flex-1 px-4 py-2.5 rounded-full text-sm truncate select-all border border-border/40"
                                 >
-                                    <Link class="w-4 h-4 text-primary" />
-                                    Vincular a PC
-                                </h4>
-                                <p class="text-xs text-muted-foreground mt-1">
-                                    Pega el ID de otro PC. Tu lienzo será
-                                    reemplazado temporalmente por el del
-                                    anfitrión.
-                                </p>
-                            </div>
-                            <div class="flex flex-col gap-2">
-                                <Input
-                                    type="text"
-                                    bind:value={targetPeerId}
-                                    placeholder="Ej: A7X9F2"
-                                    class="text-center font-mono font-bold tracking-widest uppercase rounded-full"
-                                />
+                                    {peerId || syncService.roomCode}
+                                </div>
                                 <Button
-                                    onclick={connectToPC}
-                                    disabled={!targetPeerId.trim()}
-                                    class="w-full rounded-full h-10 font-bold"
+                                    variant="outline"
+                                    size="icon"
+                                    onclick={copyPeerId}
+                                    class="rounded-full shrink-0"
+                                    title="Copiar código"
                                 >
-                                    Conectar al Anfitrión
+                                    {#if copied}
+                                        <Check class="w-4 h-4 text-green-500" />
+                                    {:else}
+                                        <Copy
+                                            class="w-4 h-4 text-muted-foreground"
+                                        />
+                                    {/if}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onclick={() => syncService.disconnect()}
+                                    class="rounded-full shrink-0 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                    title="Detener uso compartido"
+                                >
+                                    <Unplug class="w-4 h-4" />
                                 </Button>
                             </div>
                         </div>
-                    {/if}
 
-                    <!-- Connected Devices Section -->
-                    {#if desktopState.clientConnections.length > 0}
-                        <div class="pt-4 border-t border-border space-y-3">
-                            <h4 class="text-sm font-semibold text-foreground">
-                                Dispositivos Conectados
-                            </h4>
-                            <div class="flex flex-col gap-2">
-                                {#each desktopState.clientConnections as conn}
-                                    <div
-                                        class="flex items-center justify-between bg-muted/50 p-2.5 rounded-[1rem]"
-                                    >
-                                        <div class="flex items-center gap-2">
-                                            <div
-                                                class="w-2 h-2 rounded-full bg-blue-500"
-                                            ></div>
-                                            <span
-                                                class="text-sm font-mono font-bold tracking-widest"
-                                                >{(conn as any).shortCode || conn.peer}</span
-                                            >
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            title="Desconectar"
-                                            class="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10 rounded-full shrink-0"
-                                            onclick={() => {
-                                                conn.close();
-                                                desktopState.clientConnections =
-                                                    desktopState.clientConnections.filter(
-                                                        (c: any) => c !== conn,
-                                                    );
-                                            }}
+                        <p class="text-xs text-center text-muted-foreground max-w-xs">
+                            Escanea el QR con tu celular o comparte este código con otros PCs para vincularlos.
+                        </p>
+
+                        <!-- Connected Devices Section -->
+                        {#if desktopState.clientConnections.length > 0}
+                            <div class="w-full pt-3 border-t border-border space-y-2">
+                                <h4 class="text-xs font-semibold text-foreground uppercase tracking-wider">
+                                    Dispositivos Conectados ({desktopState.clientConnections.length})
+                                </h4>
+                                <div class="flex flex-col gap-1.5">
+                                    {#each desktopState.clientConnections as conn}
+                                        <div
+                                            class="flex items-center justify-between bg-muted/50 px-3 py-2 rounded-xl"
                                         >
-                                            <Unplug class="w-4 h-4" />
-                                        </Button>
-                                    </div>
-                                {/each}
+                                            <div class="flex items-center gap-2">
+                                                <div
+                                                    class="w-2 h-2 rounded-full bg-green-500 animate-pulse"
+                                                ></div>
+                                                <span
+                                                    class="text-xs font-mono font-bold tracking-wider"
+                                                    >{(conn as any).shortCode || conn.peer}</span
+                                                >
+                                            </div>
+                                        </div>
+                                    {/each}
+                                </div>
                             </div>
+                        {/if}
+                    {:else}
+                        <div class="py-6 px-4 flex flex-col items-center text-center gap-4 w-full">
+                            <div class="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
+                                <QrCode class="w-7 h-7" />
+                            </div>
+                            <div class="space-y-1 max-w-xs">
+                                <h4 class="text-sm font-semibold text-foreground">
+                                    Compartir este lienzo
+                                </h4>
+                                <p class="text-xs text-muted-foreground leading-relaxed">
+                                    Genera un código QR y un ID temporal para conectar tu celular u otros PCs sin iniciar conexiones automáticas al abrir la app.
+                                </p>
+                            </div>
+                            <Button
+                                onclick={handleStartSharing}
+                                disabled={isStartingHost || syncService.status === "connecting"}
+                                class="w-full rounded-full h-11 font-bold gap-2"
+                            >
+                                {#if isStartingHost || syncService.status === "connecting"}
+                                    <Loader2 class="w-4 h-4 animate-spin" />
+                                    <span>Iniciando sala...</span>
+                                {:else}
+                                    <Share2 class="w-4 h-4" />
+                                    <span>Iniciar vinculación</span>
+                                {/if}
+                            </Button>
                         </div>
                     {/if}
                 </Tabs.Content>

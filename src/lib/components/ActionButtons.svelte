@@ -3,6 +3,7 @@
     import SettingsIcon from "@lucide/svelte/icons/settings";
     import MonitorSmartphone from "@lucide/svelte/icons/monitor-smartphone";
     import { desktopState } from "../../routes/desktop-state.svelte";
+    import { syncService } from "$lib/sync-service.svelte";
     import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
     import Type from "@lucide/svelte/icons/type";
     import Image from "@lucide/svelte/icons/image";
@@ -39,17 +40,37 @@
 
     let genericFileInput: HTMLInputElement;
 
-    function handleFileSelect(e: Event) {
+    async function handleFileSelect(e: Event) {
         const target = e.target as HTMLInputElement;
         if (!target.files || target.files.length === 0) return;
 
-        for (let i = 0; i < target.files.length; i++) {
-            const file = target.files[i];
-            const fileId = crypto.randomUUID();
-            desktopState.hostedFiles.set(fileId, file);
-            desktopState.addPeerFile(fileId, file.name, file.size);
-        }
+        const files = Array.from(target.files);
         target.value = "";
+
+        for (const file of files) {
+            const fileId = crypto.randomUUID();
+            const localUrl = URL.createObjectURL(file);
+            desktopState.hostedFiles.set(fileId, file);
+            desktopState.addItem({
+                type: "peer-file",
+                content: "",
+                fileId,
+                name: file.name,
+                size: file.size,
+                downloadUrl: localUrl,
+                w: 240,
+                h: 120,
+            }, true);
+
+            // Si estamos conectados a una sala, transmitimos el archivo completo en trozos a los demás dispositivos
+            if (syncService.status === "connected" && syncService.roomCode) {
+                try {
+                    await syncService.transferFile(file, undefined, fileId, false);
+                } catch (err) {
+                    console.error("Error transmitiendo archivo a la sala:", err);
+                }
+            }
+        }
     }
 
     let isMenuOpen = $state(false);

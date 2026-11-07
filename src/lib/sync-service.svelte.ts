@@ -18,14 +18,16 @@ interface IncomingFileTransfer {
     receivedBytes: number;
 }
 
-const CHUNK_SIZE = 64 * 1024; // 64 KB
+const CHUNK_SIZE = 16 * 1024; // 16 KB (tamaño seguro para WebRTC DataChannel y WebSocket sin truncamiento)
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
     let binary = "";
     const bytes = new Uint8Array(buffer);
     const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
+    const step = 8192;
+    for (let i = 0; i < len; i += step) {
+        const sub = bytes.subarray(i, Math.min(i + step, len));
+        binary += String.fromCharCode.apply(null, Array.from(sub));
     }
     return btoa(binary);
 }
@@ -55,12 +57,14 @@ class SyncService {
     private ws: WebSocket | null = null;
     private pc: RTCPeerConnection | null = null;
     private dataChannel: RTCDataChannel | null = null;
+    private pendingIceCandidates: RTCIceCandidateInit[] = [];
 
     private reconnectTimer: any = null;
     private pingTimer: any = null;
     private reconnectAttempts = 0;
     private messageListeners = new Set<(data: any) => void>();
     private stateSyncProvider: (() => any) | null = null;
+    private isConnectingPromise: Promise<string> | null = null;
 
     // Incoming file assembly map
     private incomingTransfers = new Map<string, IncomingFileTransfer>();
@@ -87,7 +91,11 @@ class SyncService {
             }
 
             document.addEventListener("visibilitychange", () => {
-                if (document.visibilityState === "visible" && this.roomCode && this.status === "disconnected") {
+                if (
+                    document.visibilityState === "visible" &&
+                    this.roomCode &&
+                    this.status === "disconnected"
+                ) {
                     this.connect(this.roomCode, this.isHost);
                 }
             });
@@ -125,33 +133,64 @@ class SyncService {
     }
 
     async createOrJoinHost(preferredCode?: string): Promise<string> {
-        this.isHost = true;
-        try {
-            const serverUrl = this.getServerUrl();
-            const res = await fetch(`${serverUrl}/api/room`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code: preferredCode }),
-            });
-            const data = await res.json();
-            if (data.success && data.code) {
-                this.roomCode = data.code;
-                await this.connect(data.code, true);
-                return data.code;
-            }
-        } catch (err) {
-            console.warn("No se pudo conectar al endpoint HTTP de salas, usando fallback:", err);
+        // Evitar reconexiones duplicadas si ya estamos conectados o conectando como host
+        if (
+            this.isHost &&
+            this.roomCode &&
+            (this.status === "connected" || this.status === "connecting")
+        ) {
+            return this.roomCode;
+        }
+        if (this.isConnectingPromise) {
+            return this.isConnectingPromise;
         }
 
-        const fallbackCode = preferredCode || this.generateFallbackCode();
-        this.roomCode = fallbackCode;
-        await this.connect(fallbackCode, true);
-        return fallbackCode;
+        this.isHost = true;
+        this.isConnectingPromise = (async () => {
+            try {
+                const serverUrl = this.getServerUrl();
+                const res = await fetch(`${serverUrl}/api/room`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code: preferredCode }),
+                });
+                const data = await res.json();
+                if (data.success && data.code) {
+                    this.roomCode = data.code;
+                    await this.connect(data.code, true);
+                    return data.code;
+                }
+            } catch (err) {
+                console.warn("No se pudo conectar al endpoint HTTP de salas, usando fallback:", err);
+            }
+
+            const fallbackCode = preferredCode || this.generateFallbackCode();
+            this.roomCode = fallbackCode;
+            await this.connect(fallbackCode, true);
+            return fallbackCode;
+        })();
+
+        try {
+            return await this.isConnectingPromise;
+        } finally {
+            this.isConnectingPromise = null;
+        }
     }
 
     async connectToRoom(code: string): Promise<void> {
-        this.isHost = false;
         const upper = code.trim().toUpperCase();
+        if (!upper) return;
+
+        // Si ya estamos conectados a esta misma sala como cliente, no reiniciar socket
+        if (
+            !this.isHost &&
+            this.roomCode === upper &&
+            (this.status === "connected" || this.status === "connecting")
+        ) {
+            return;
+        }
+
+        this.isHost = false;
         this.roomCode = upper;
         await this.connect(upper, false);
     }
@@ -162,44 +201,42 @@ class SyncService {
         this.status = this.reconnectAttempts > 0 ? "reconnecting" : "connecting";
 
         try {
+            // Desacoplar handlers del socket anterior ANTES de cerrarlo para evitar que su onclose dispare reconexión en bucle
             if (this.ws) {
-                try {
-                    this.ws.close();
-                } catch {}
+                const oldWs = this.ws;
                 this.ws = null;
+                oldWs.onopen = null;
+                oldWs.onmessage = null;
+                oldWs.onclose = null;
+                oldWs.onerror = null;
+                try {
+                    oldWs.close();
+                } catch {}
             }
 
             const wsBase = this.getWsUrl();
             const wsUrl = `${wsBase}?room=${encodeURIComponent(room)}&role=${asHost ? "host" : "client"}&deviceType=${this.deviceType}&deviceId=${this.deviceId}`;
             const socket = new WebSocket(wsUrl);
+            this.ws = socket;
 
             socket.onopen = () => {
-                this.ws = socket;
+                if (this.ws !== socket) return;
                 this.status = "connected";
                 this.reconnectAttempts = 0;
 
-                socket.send(JSON.stringify({
-                    type: "join",
-                    room,
-                    role: asHost ? "host" : "client",
-                    deviceType: this.deviceType,
-                    deviceId: this.deviceId,
-                }));
+                // Nota: la suscripción inicial ya se hace mediante los query params en server open(ws),
+                // evitamos enviar un segundo "join" redundante que causaba doble evento peer-joined.
 
-                // Iniciar WebRTC si somos Host
-                if (this.isHost) {
-                    this.initHostWebRTC();
-                }
-
-                // Ping heartbeat
+                // Ping heartbeat cada 20s
                 this.pingTimer = setInterval(() => {
-                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                        this.ws.send(JSON.stringify({ type: "ping" }));
+                    if (this.ws === socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ type: "ping" }));
                     }
                 }, 20000);
             };
 
             socket.onmessage = (event) => {
+                if (this.ws !== socket) return;
                 try {
                     const data = JSON.parse(event.data);
                     this.handleMessage(data);
@@ -209,6 +246,7 @@ class SyncService {
             };
 
             socket.onclose = () => {
+                if (this.ws !== socket) return;
                 this.ws = null;
                 this.clearTimers();
                 this.closePeerConnection();
@@ -221,6 +259,7 @@ class SyncService {
             };
 
             socket.onerror = (err) => {
+                if (this.ws !== socket) return;
                 console.warn("WebSocket error:", err);
             };
         } catch (err) {
@@ -243,18 +282,19 @@ class SyncService {
         };
     }
 
-    private initHostWebRTC() {
-        if (typeof window === "undefined" || !window.RTCPeerConnection) return;
+    private createHostPeerConnection() {
+        if (typeof window === "undefined" || !window.RTCPeerConnection) return null;
         this.closePeerConnection();
         this.p2pStatus = "connecting";
 
         try {
             const pc = new RTCPeerConnection(this.getRtcConfig());
             this.pc = pc;
+            this.pendingIceCandidates = [];
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    this.broadcast({
+                    this.sendViaWs({
                         type: "webrtc-ice",
                         candidate: event.candidate,
                         from: this.deviceId,
@@ -265,16 +305,22 @@ class SyncService {
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === "connected") {
                     this.p2pStatus = "connected";
-                } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+                } else if (
+                    pc.connectionState === "disconnected" ||
+                    pc.connectionState === "failed" ||
+                    pc.connectionState === "closed"
+                ) {
                     this.p2pStatus = "disconnected";
                 }
             };
 
             const dc = pc.createDataChannel("anotapp-p2p", { ordered: true });
             this.setupDataChannel(dc);
+            return pc;
         } catch (err) {
             console.warn("WebRTC host setup failed, using WebSocket relay fallback:", err);
             this.p2pStatus = "disconnected";
+            return null;
         }
     }
 
@@ -288,10 +334,12 @@ class SyncService {
 
         dc.onclose = () => {
             this.p2pStatus = "disconnected";
-            this.dataChannel = null;
+            if (this.dataChannel === dc) {
+                this.dataChannel = null;
+            }
         };
 
-        dc.onmessage = (event) => {
+        dc.onmessage = async (event) => {
             if (typeof event.data === "string") {
                 try {
                     const data = JSON.parse(event.data);
@@ -301,11 +349,14 @@ class SyncService {
                 }
             } else if (event.data instanceof ArrayBuffer) {
                 this.handleBinaryData(event.data);
+            } else if (event.data instanceof Blob) {
+                const buf = await event.data.arrayBuffer();
+                this.handleBinaryData(buf);
             }
         };
     }
 
-    private async handleWebRtcOffer(offer: RTCSessionDescriptionInit, from: string) {
+    private async handleWebRtcOffer(offer: RTCSessionDescriptionInit, _from: string) {
         if (this.isHost || typeof window === "undefined" || !window.RTCPeerConnection) return;
         this.closePeerConnection();
         this.p2pStatus = "connecting";
@@ -313,10 +364,11 @@ class SyncService {
         try {
             const pc = new RTCPeerConnection(this.getRtcConfig());
             this.pc = pc;
+            this.pendingIceCandidates = [];
 
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    this.broadcast({
+                    this.sendViaWs({
                         type: "webrtc-ice",
                         candidate: event.candidate,
                         from: this.deviceId,
@@ -331,16 +383,29 @@ class SyncService {
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === "connected") {
                     this.p2pStatus = "connected";
-                } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+                } else if (
+                    pc.connectionState === "disconnected" ||
+                    pc.connectionState === "failed" ||
+                    pc.connectionState === "closed"
+                ) {
                     this.p2pStatus = "disconnected";
                 }
             };
 
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+            // Drenar candidatos ICE recibidos antes de tener remoteDescription
+            for (const cand of this.pendingIceCandidates) {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(cand));
+                } catch {}
+            }
+            this.pendingIceCandidates = [];
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
-            this.broadcast({
+            this.sendViaWs({
                 type: "webrtc-answer",
                 answer,
                 from: this.deviceId,
@@ -354,7 +419,15 @@ class SyncService {
     private async handleWebRtcAnswer(answer: RTCSessionDescriptionInit) {
         if (!this.pc) return;
         try {
-            await this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+            if (this.pc.signalingState === "have-local-offer") {
+                await this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+                for (const cand of this.pendingIceCandidates) {
+                    try {
+                        await this.pc.addIceCandidate(new RTCIceCandidate(cand));
+                    } catch {}
+                }
+                this.pendingIceCandidates = [];
+            }
         } catch (err) {
             console.warn("Error handling WebRTC answer:", err);
         }
@@ -363,19 +436,34 @@ class SyncService {
     private async handleWebRtcIce(candidate: RTCIceCandidateInit) {
         if (!this.pc) return;
         try {
-            await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+            if (this.pc.remoteDescription && this.pc.remoteDescription.type) {
+                await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } else {
+                this.pendingIceCandidates.push(candidate);
+            }
         } catch (err) {
             console.warn("Error adding ICE candidate:", err);
         }
     }
 
     private closePeerConnection() {
+        this.pendingIceCandidates = [];
         if (this.dataChannel) {
-            try { this.dataChannel.close(); } catch {}
+            try {
+                this.dataChannel.onopen = null;
+                this.dataChannel.onclose = null;
+                this.dataChannel.onmessage = null;
+                this.dataChannel.close();
+            } catch {}
             this.dataChannel = null;
         }
         if (this.pc) {
-            try { this.pc.close(); } catch {}
+            try {
+                this.pc.onicecandidate = null;
+                this.pc.onconnectionstatechange = null;
+                this.pc.ondatachannel = null;
+                this.pc.close();
+            } catch {}
             this.pc = null;
         }
         this.p2pStatus = "disconnected";
@@ -389,6 +477,7 @@ class SyncService {
 
         // Ignore messages sent by self
         if (data.from && data.from === this.deviceId) return;
+        if (data.deviceId && data.deviceId === this.deviceId && data.type === "peer-joined") return;
 
         if (data.type === "pong") return;
 
@@ -404,24 +493,30 @@ class SyncService {
                 this.deviceCount = data.deviceCount;
             }
 
-            // Si somos Host, creamos la oferta WebRTC para el nuevo peer
-            if (this.isHost && this.pc) {
-                this.pc.createOffer().then((offer) => {
-                    this.pc?.setLocalDescription(offer);
-                    this.broadcast({
-                        type: "webrtc-offer",
-                        offer,
-                        from: this.deviceId,
-                    });
-                }).catch((e) => console.warn("Error creating WebRTC offer:", e));
+            // Si somos Host, creamos una nueva conexión WebRTC limpia y enviamos la oferta al peer
+            if (this.isHost) {
+                const pc = this.createHostPeerConnection();
+                if (pc) {
+                    pc.createOffer()
+                        .then(async (offer) => {
+                            await pc.setLocalDescription(offer);
+                            this.sendViaWs({
+                                type: "webrtc-offer",
+                                offer,
+                                from: this.deviceId,
+                            });
+                        })
+                        .catch((e) => console.warn("Error creating WebRTC offer:", e));
+                }
 
-                // Sincronizar estado completo
+                // Sincronizar estado completo por WebSocket
                 if (this.stateSyncProvider) {
                     const currentState = this.stateSyncProvider();
                     if (currentState) {
-                        this.broadcast({
+                        this.sendViaWs({
                             type: "sync-state",
                             ...currentState,
+                            from: this.deviceId,
                         });
                     }
                 }
@@ -432,6 +527,9 @@ class SyncService {
         if (data.type === "peer-left") {
             if (typeof data.deviceCount === "number") {
                 this.deviceCount = data.deviceCount;
+            }
+            if (this.deviceCount <= 1) {
+                this.closePeerConnection();
             }
             return;
         }
@@ -452,46 +550,47 @@ class SyncService {
             return;
         }
 
-        // Binary File Streaming over WebSocket (Fallback or Direct)
+        // Binary File Streaming over WebSocket or DataChannel
         if (data.type === "stream-file-start") {
+            const totalChunks = Math.max(1, Number(data.totalChunks) || 1);
             this.incomingTransfers.set(data.fileId, {
                 fileId: data.fileId,
-                name: data.name,
-                size: data.size,
+                name: data.name || "archivo",
+                size: Number(data.size) || 0,
                 mimeType: data.mimeType || "application/octet-stream",
-                totalChunks: data.totalChunks,
-                chunks: new Array(data.totalChunks),
+                totalChunks,
+                chunks: new Array(totalChunks),
                 receivedChunks: 0,
                 receivedBytes: 0,
             });
-            this.transferProgress = { fileId: data.fileId, percent: 0, name: data.name };
+            this.transferProgress = { fileId: data.fileId, percent: 0, name: data.name || "archivo" };
             return;
         }
 
         if (data.type === "stream-file-chunk") {
             const transfer = this.incomingTransfers.get(data.fileId);
-            if (transfer) {
-                const chunkBuffer = base64ToArrayBuffer(data.data);
-                transfer.chunks[data.chunkIndex] = chunkBuffer;
-                transfer.receivedChunks++;
-                transfer.receivedBytes += chunkBuffer.byteLength;
+            if (transfer && typeof data.chunkIndex === "number" && data.data) {
+                if (!transfer.chunks[data.chunkIndex]) {
+                    const chunkBuffer = base64ToArrayBuffer(data.data);
+                    transfer.chunks[data.chunkIndex] = chunkBuffer;
+                    transfer.receivedChunks++;
+                    transfer.receivedBytes += chunkBuffer.byteLength;
 
-                const percent = Math.round((transfer.receivedChunks / transfer.totalChunks) * 100);
-                this.transferProgress = { fileId: data.fileId, percent, name: transfer.name };
+                    const percent = Math.min(99, Math.round((transfer.receivedChunks / transfer.totalChunks) * 100));
+                    this.transferProgress = { fileId: data.fileId, percent, name: transfer.name };
+
+                    if (transfer.receivedChunks >= transfer.totalChunks) {
+                        this.finalizeIncomingTransfer(data.fileId, ( data as any ).isOnDemand);
+                    }
+                }
             }
             return;
         }
 
         if (data.type === "stream-file-end") {
             const transfer = this.incomingTransfers.get(data.fileId);
-            if (transfer) {
-                const blob = new Blob(transfer.chunks, { type: transfer.mimeType });
-                const blobUrl = URL.createObjectURL(blob);
-                this.incomingTransfers.delete(data.fileId);
-                this.transferProgress = null;
-
-                // Notificar que el archivo completó su transferencia
-                this.notifyFileReady(transfer.fileId, transfer.name, blobUrl, transfer.size, transfer.mimeType);
+            if (transfer && transfer.receivedChunks >= transfer.totalChunks) {
+                this.finalizeIncomingTransfer(data.fileId, data.isOnDemand);
             }
             return;
         }
@@ -506,32 +605,49 @@ class SyncService {
         }
     }
 
+    private finalizeIncomingTransfer(fileId: string, isOnDemand = false) {
+        const transfer = this.incomingTransfers.get(fileId);
+        if (!transfer) return;
+
+        // Filtrar posibles huecos por seguridad
+        const validChunks = transfer.chunks.filter(Boolean);
+        const blob = new Blob(validChunks, { type: transfer.mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+        this.incomingTransfers.delete(fileId);
+        this.transferProgress = null;
+
+        this.notifyFileReady(
+            fileId,
+            transfer.name,
+            blobUrl,
+            blob,
+            transfer.size,
+            transfer.mimeType,
+            isOnDemand
+        );
+    }
+
     private handleBinaryData(buffer: ArrayBuffer) {
-        // En WebRTC DataChannel enviamos metadatos como JSON string y trozos como ArrayBuffer con un encabezado
         // Header: [4 bytes chunkIndex, 36 bytes fileId string] + payload
         try {
+            if (buffer.byteLength < 40) return;
             const view = new DataView(buffer);
             const chunkIndex = view.getUint32(0);
             const decoder = new TextDecoder();
-            const fileId = decoder.decode(new Uint8Array(buffer, 4, 36));
+            const fileId = decoder.decode(new Uint8Array(buffer, 4, 36)).trim();
             const chunkPayload = buffer.slice(40);
 
             const transfer = this.incomingTransfers.get(fileId);
-            if (transfer) {
+            if (transfer && !transfer.chunks[chunkIndex]) {
                 transfer.chunks[chunkIndex] = chunkPayload;
                 transfer.receivedChunks++;
                 transfer.receivedBytes += chunkPayload.byteLength;
 
-                const percent = Math.round((transfer.receivedChunks / transfer.totalChunks) * 100);
+                const percent = Math.min(99, Math.round((transfer.receivedChunks / transfer.totalChunks) * 100));
                 this.transferProgress = { fileId, percent, name: transfer.name };
 
                 if (transfer.receivedChunks >= transfer.totalChunks) {
-                    const blob = new Blob(transfer.chunks, { type: transfer.mimeType });
-                    const blobUrl = URL.createObjectURL(blob);
-                    this.incomingTransfers.delete(fileId);
-                    this.transferProgress = null;
-
-                    this.notifyFileReady(fileId, transfer.name, blobUrl, transfer.size, transfer.mimeType);
+                    this.finalizeIncomingTransfer(fileId, false);
                 }
             }
         } catch (e) {
@@ -539,7 +655,15 @@ class SyncService {
         }
     }
 
-    private notifyFileReady(fileId: string, name: string, blobUrl: string, size: number, mimeType: string) {
+    private notifyFileReady(
+        fileId: string,
+        name: string,
+        blobUrl: string,
+        blob: Blob,
+        size: number,
+        mimeType: string,
+        isOnDemand = false
+    ) {
         const isImage = mimeType.startsWith("image/");
         const eventData = {
             type: "file-transfer-ready",
@@ -548,7 +672,9 @@ class SyncService {
             size,
             mimeType,
             downloadUrl: blobUrl,
+            blob,
             isImage,
+            isOnDemand,
         };
 
         for (const listener of this.messageListeners) {
@@ -560,14 +686,26 @@ class SyncService {
         }
     }
 
-    broadcast(message: any) {
-        const payload = JSON.stringify(message);
+    private sendViaWs(message: any) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            try {
+                this.ws.send(JSON.stringify({ ...message, from: this.deviceId }));
+            } catch (err) {
+                console.error("Error enviando mensaje WS:", err);
+            }
+        }
+    }
 
-        // Si P2P DataChannel está abierto y no es señalización WebRTC, enviamos por P2P directo!
+    broadcast(message: any) {
+        const msgWithFrom = { ...message, from: this.deviceId };
+        const payload = JSON.stringify(msgWithFrom);
+
+        // Si P2P DataChannel está abierto y no es señalización WebRTC, enviamos por P2P directo
         if (
             this.dataChannel &&
             this.dataChannel.readyState === "open" &&
-            !message.type.startsWith("webrtc-")
+            !message.type?.startsWith("webrtc-") &&
+            payload.length < 64 * 1024
         ) {
             try {
                 this.dataChannel.send(payload);
@@ -592,7 +730,9 @@ class SyncService {
     // ==========================================
     async transferFile(
         file: File,
-        onProgress?: (percent: number) => void
+        onProgress?: (percent: number) => void,
+        customFileId?: string,
+        isOnDemand = false
     ): Promise<{
         fileId: string;
         name: string;
@@ -600,12 +740,11 @@ class SyncService {
         type: string;
         downloadUrl: string;
     }> {
-        const fileId = crypto.randomUUID();
+        const fileId = customFileId || crypto.randomUUID();
         const localBlobUrl = URL.createObjectURL(file);
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const useP2P = this.dataChannel && this.dataChannel.readyState === "open";
+        const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
 
-        // 1. Iniciar transferencia informando metadatos
+        // 1. Iniciar transferencia informando metadatos por WebSocket y/o DataChannel para garantizar orden
         const startMsg = {
             type: "stream-file-start",
             fileId,
@@ -613,53 +752,51 @@ class SyncService {
             size: file.size,
             mimeType: file.type || "application/octet-stream",
             totalChunks,
-            isP2P: useP2P,
+            isOnDemand,
             from: this.deviceId,
         };
 
-        if (useP2P && this.dataChannel) {
-            this.dataChannel.send(JSON.stringify(startMsg));
-        } else {
-            this.broadcast(startMsg);
-        }
+        this.broadcast(startMsg);
 
-        // 2. Transmitir en trozos de 64 KB
+        // Pequeña espera para asegurar que el receptor haya inicializado el mapa incomingTransfers
+        await new Promise((r) => setTimeout(r, 30));
+
+        // 2. Transmitir en trozos seguros de 16 KB
         let offset = 0;
         let chunkIndex = 0;
 
-        while (offset < file.size) {
+        while (offset < file.size || (file.size === 0 && chunkIndex === 0)) {
             const slice = file.slice(offset, offset + CHUNK_SIZE);
             const arrayBuffer = await slice.arrayBuffer();
 
+            // Enviamos chunks Base64 con control de flujo en el socket/datachannel para garantizar entrega íntegra al 100%
+            const base64Chunk = arrayBufferToBase64(arrayBuffer);
+            const chunkMsg = {
+                type: "stream-file-chunk",
+                fileId,
+                chunkIndex,
+                data: base64Chunk,
+                isOnDemand,
+                from: this.deviceId,
+            };
+
+            const useP2P = this.dataChannel && this.dataChannel.readyState === "open";
             if (useP2P && this.dataChannel) {
-                // Flow control para WebRTC DataChannel (esperar si buffer lleno)
-                while (this.dataChannel.bufferedAmount > 1024 * 1024) {
-                    await new Promise((r) => setTimeout(r, 20));
+                while (this.dataChannel && this.dataChannel.readyState === "open" && this.dataChannel.bufferedAmount > 256 * 1024) {
+                    await new Promise((r) => setTimeout(r, 15));
                 }
-
-                // Header binario: [4 bytes uint32 index, 36 bytes fileId string] + payload
-                const packet = new Uint8Array(40 + arrayBuffer.byteLength);
-                const view = new DataView(packet.buffer);
-                view.setUint32(0, chunkIndex);
-                const encoder = new TextEncoder();
-                packet.set(encoder.encode(fileId.padEnd(36, " ")), 4);
-                packet.set(new Uint8Array(arrayBuffer), 40);
-
-                this.dataChannel.send(packet.buffer);
+                try {
+                    this.dataChannel.send(JSON.stringify(chunkMsg));
+                } catch {
+                    this.sendViaWs(chunkMsg);
+                }
             } else {
-                // Transmisión directa por WebSocket en trozos Base64 sin guardar en servidor
-                const base64Chunk = arrayBufferToBase64(arrayBuffer);
-                this.broadcast({
-                    type: "stream-file-chunk",
-                    fileId,
-                    chunkIndex,
-                    data: base64Chunk,
-                    from: this.deviceId,
-                });
-                // Pausa mínima para no saturar el socket en archivos muy grandes
-                if (chunkIndex % 8 === 0) {
-                    await new Promise((r) => setTimeout(r, 5));
+                if (this.ws) {
+                    while (this.ws && this.ws.readyState === WebSocket.OPEN && this.ws.bufferedAmount > 256 * 1024) {
+                        await new Promise((r) => setTimeout(r, 15));
+                    }
                 }
+                this.sendViaWs(chunkMsg);
             }
 
             offset += arrayBuffer.byteLength;
@@ -668,20 +805,22 @@ class SyncService {
             const percent = Math.round((chunkIndex / totalChunks) * 100);
             if (onProgress) onProgress(percent);
             this.transferProgress = { fileId, percent, name: file.name };
+
+            // Pausa de respiración cada 4 chunks (64 KB) para evitar desbordar el proxy WebSocket o DataChannel
+            if (chunkIndex % 4 === 0) {
+                await new Promise((r) => setTimeout(r, 10));
+            }
+            if (file.size === 0) break;
         }
 
         // 3. Finalizar transferencia
         const endMsg = {
             type: "stream-file-end",
             fileId,
+            isOnDemand,
             from: this.deviceId,
         };
-
-        if (useP2P && this.dataChannel) {
-            this.dataChannel.send(JSON.stringify(endMsg));
-        } else {
-            this.broadcast(endMsg);
-        }
+        this.broadcast(endMsg);
 
         this.transferProgress = null;
 
@@ -701,10 +840,15 @@ class SyncService {
         this.clearTimers();
         this.closePeerConnection();
         if (this.ws) {
-            try {
-                this.ws.close();
-            } catch {}
+            const oldWs = this.ws;
             this.ws = null;
+            oldWs.onopen = null;
+            oldWs.onmessage = null;
+            oldWs.onclose = null;
+            oldWs.onerror = null;
+            try {
+                oldWs.close();
+            } catch {}
         }
         this.status = "disconnected";
     }
