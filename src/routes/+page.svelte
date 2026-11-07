@@ -19,6 +19,7 @@
     import { desktopState } from "./desktop-state.svelte";
     import { interactionManager } from "./interaction-manager.svelte";
     import { syncService } from "$lib/sync-service.svelte";
+    import { renderMarkdown } from "$lib/markdown";
 
     // UI Icons
     import QrCode from "@lucide/svelte/icons/qr-code";
@@ -42,6 +43,7 @@
     import Unplug from "@lucide/svelte/icons/unplug";
     import ChevronDown from "@lucide/svelte/icons/chevron-down";
     import Zap from "@lucide/svelte/icons/zap";
+    import UploadCloud from "@lucide/svelte/icons/upload-cloud";
 
     // UI Components
     import { Button } from "$lib/components/ui/button";
@@ -61,8 +63,104 @@
     let manualCodeInput = $state("");
     let isScannerActive = $state(false);
     let copiedNoteId = $state<string | null>(null);
+    let isDraggingFileOver = $state(false);
+    let dragCounter = 0;
 
     let stopListening: (() => Promise<void>) | null = null;
+
+    function handleDragEnter(e: DragEvent) {
+        if (!e.dataTransfer?.types?.includes("Files")) return;
+        e.preventDefault();
+        dragCounter++;
+        isDraggingFileOver = true;
+    }
+
+    function handleDragOver(e: DragEvent) {
+        if (!e.dataTransfer?.types?.includes("Files")) return;
+        e.preventDefault();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = "copy";
+        }
+        isDraggingFileOver = true;
+    }
+
+    function handleDragLeave(e: DragEvent) {
+        if (!e.dataTransfer?.types?.includes("Files")) return;
+        e.preventDefault();
+        dragCounter = Math.max(0, dragCounter - 1);
+        if (dragCounter === 0) {
+            isDraggingFileOver = false;
+        }
+    }
+
+    async function handleDrop(e: DragEvent) {
+        e.preventDefault();
+        dragCounter = 0;
+        isDraggingFileOver = false;
+
+        const files = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
+        if (files.length === 0) return;
+
+        const basePos = interactionManager.screenToCanvas(
+            e.clientX || window.innerWidth / 2,
+            e.clientY || window.innerHeight / 2,
+        );
+
+        for (let idx = 0; idx < files.length; idx++) {
+            const file = files[idx];
+            const offset = idx * 28;
+            const isImage = file.type.startsWith("image/");
+            const fileId = crypto.randomUUID();
+            const localUrl = URL.createObjectURL(file);
+            desktopState.hostedFiles.set(fileId, file);
+
+            if (isImage) {
+                const dataUrl = await new Promise<string>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => resolve((ev.target?.result as string) || "");
+                    reader.readAsDataURL(file);
+                });
+
+                desktopState.addItem(
+                    {
+                        type: "image",
+                        content: dataUrl,
+                        name: file.name,
+                        size: file.size,
+                        fileId,
+                        downloadUrl: localUrl,
+                        x: Math.round(basePos.x - 130 + offset),
+                        y: Math.round(basePos.y - 110 + offset),
+                    },
+                    true,
+                );
+            } else {
+                desktopState.addItem(
+                    {
+                        type: "peer-file",
+                        content: "",
+                        name: file.name,
+                        size: file.size,
+                        fileId,
+                        downloadUrl: localUrl,
+                        w: 240,
+                        h: 120,
+                        x: Math.round(basePos.x - 120 + offset),
+                        y: Math.round(basePos.y - 60 + offset),
+                    },
+                    true,
+                );
+            }
+
+            if (syncService.status === "connected" && syncService.roomCode) {
+                try {
+                    await syncService.transferFile(file, undefined, fileId, false);
+                } catch (err) {
+                    console.error("Error transmitiendo archivo arrastrado:", err);
+                }
+            }
+        }
+    }
 
     function onDelete(id: string) {
         desktopState.deleteItem(id);
@@ -326,6 +424,10 @@
     onpointerup={(e) => interactionManager.onPointerUp(e)}
     onpointercancel={(e) => interactionManager.onPointerUp(e)}
     onresize={() => interactionManager.onWindowResize()}
+    ondragenter={handleDragEnter}
+    ondragover={handleDragOver}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
 />
 
 <main
@@ -338,6 +440,20 @@
         <Titlebar />
     {/if}
 
+    {#if isDraggingFileOver}
+        <div class="fixed inset-0 z-[9998] pointer-events-none bg-primary/10 backdrop-blur-[2px] border-2 border-dashed border-primary/60 m-3 rounded-3xl flex items-center justify-center animate-in fade-in duration-150">
+            <div class="bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl px-6 py-4 rounded-2xl shadow-2xl border border-primary/30 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-primary/15 text-primary flex items-center justify-center">
+                    <UploadCloud class="w-5 h-5" />
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-sm font-bold text-slate-800 dark:text-zinc-100">Suelta tus archivos o imágenes aquí</span>
+                    <span class="text-xs text-slate-500 dark:text-zinc-400">Se colocarán en el lienzo y se sincronizarán al instante</span>
+                </div>
+            </div>
+        </div>
+    {/if}
+
     <!-- ============================================== -->
     <!-- TOP BAR (SOLO MÓVIL)                          -->
     <!-- ============================================== -->
@@ -346,7 +462,7 @@
             <!-- Logo / App Name -->
             <div class="flex items-center gap-2">
                 <span class="font-bold tracking-tight text-lg text-slate-800 dark:text-zinc-100 flex items-center gap-1.5">
-                    <span>Anotapp</span>
+                    <span>Anotapp<span class="text-primary">.</span></span>
                 </span>
             </div>
 
@@ -501,6 +617,13 @@
                                         >
                                             <ScanText class="w-3.5 h-3.5" />
                                         </button>
+                                        <button
+                                            onclick={() => desktopState.downloadImageItem(item)}
+                                            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors"
+                                            title="Descargar imagen"
+                                        >
+                                            <Download class="w-3.5 h-3.5" />
+                                        </button>
                                     {/if}
                                     <button
                                         onclick={() => onDelete(item.id)}
@@ -514,8 +637,11 @@
 
                             <!-- Card Body -->
                             {#if item.type === "text"}
-                                <div class="text-sm font-sans whitespace-pre-wrap break-words leading-relaxed text-slate-800 dark:text-zinc-100 max-h-48 overflow-y-auto">
-                                    {item.content}
+                                <div
+                                    class="font-sans break-words leading-relaxed text-slate-800 dark:text-zinc-100 max-h-48 overflow-y-auto"
+                                    style="font-size: {item.fontSize || 13}px;"
+                                >
+                                    {@html renderMarkdown(item.content)}
                                 </div>
                             {:else if item.type === "image"}
                                 <div class="w-full rounded-xl overflow-hidden bg-slate-100 dark:bg-zinc-950 flex items-center justify-center border border-slate-200/50 dark:border-zinc-800/50">
@@ -526,17 +652,13 @@
                                         loading="lazy"
                                     />
                                 </div>
-                                {#if item.downloadUrl}
-                                    <a
-                                        href={item.downloadUrl}
-                                        target="_blank"
-                                        download={item.name || "imagen.png"}
-                                        class="inline-flex items-center gap-1.5 text-xs text-primary font-medium hover:underline pt-1"
-                                    >
-                                        <Download class="w-3.5 h-3.5" />
-                                        <span>Descargar imagen original</span>
-                                    </a>
-                                {/if}
+                                <button
+                                    onclick={() => desktopState.downloadImageItem(item)}
+                                    class="inline-flex items-center gap-1.5 text-xs text-primary font-medium hover:underline pt-1 self-start cursor-pointer"
+                                >
+                                    <Download class="w-3.5 h-3.5" />
+                                    <span>Descargar imagen</span>
+                                </button>
                             {:else}
                                 <div class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200/50 dark:border-zinc-800/50">
                                     <div class="p-2.5 rounded-lg bg-primary/10 text-primary">
@@ -552,16 +674,13 @@
                                             </p>
                                         {/if}
                                     </div>
-                                    {#if item.downloadUrl}
-                                        <a
-                                            href={item.downloadUrl}
-                                            target="_blank"
-                                            download={item.name || "archivo"}
-                                            class="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs"
-                                        >
-                                            <Download class="w-4 h-4" />
-                                        </a>
-                                    {/if}
+                                    <button
+                                        onclick={() => desktopState.requestFile(item.fileId || item.id)}
+                                        class="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+                                        title="Descargar archivo"
+                                    >
+                                        <Download class="w-4 h-4" />
+                                    </button>
                                 </div>
                             {/if}
                         </div>
@@ -634,6 +753,13 @@
                             </div>
                         {/if}
                         <CanvasControls />
+                        {#if !isMobile && !isTauri}
+                            <div class="h-10 px-4 rounded-full flex items-center bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-zinc-800/80 shadow-lg ring-1 ring-black/5 dark:ring-white/5 select-none">
+                                <span class="font-bold tracking-tight text-sm text-slate-800 dark:text-zinc-100">
+                                    Anotapp<span class="text-primary">.</span>
+                                </span>
+                            </div>
+                        {/if}
                     </div>
                     {#if interactionManager.showMinimap}
                         <CanvasMinimap />

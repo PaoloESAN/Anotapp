@@ -15,4 +15,5 @@ export interface ClipboardItem {
     editing?: boolean;
     title?: string;
     editingTitle?: boolean;
+    fontSize?: number;
 }

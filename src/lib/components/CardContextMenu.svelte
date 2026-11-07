@@ -82,14 +82,15 @@
                     </DropdownMenu.Item>
                 {/if}
 
-                {#if desktopState.contextMenu.item?.type === "peer-file"}
+                {#if desktopState.contextMenu.item?.type === "peer-file" || desktopState.contextMenu.item?.type === "image"}
                     <DropdownMenu.Item
                         onclick={() => {
-                            if (desktopState.contextMenu.item?.fileId) {
-                                desktopState.requestFile(
-                                    desktopState.contextMenu.item.fileId,
-                                );
-                                desktopState.contextMenu.open = false;
+                            const currentItem = desktopState.contextMenu.item;
+                            desktopState.contextMenu.open = false;
+                            if (currentItem?.type === "image") {
+                                desktopState.downloadImageItem(currentItem);
+                            } else if (currentItem?.fileId) {
+                                desktopState.requestFile(currentItem.fileId);
                             }
                         }}
                         class="flex items-center justify-between px-2.5 py-1.5 text-sm rounded-xl hover:bg-muted cursor-pointer transition-colors group"

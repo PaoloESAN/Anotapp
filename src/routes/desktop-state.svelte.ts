@@ -266,6 +266,8 @@ class DesktopState {
         size,
         w,
         h,
+        x,
+        y,
     }: {
         type: "text" | "image" | "files" | "peer-file";
         content: string;
@@ -276,12 +278,16 @@ class DesktopState {
         size?: number;
         w?: number;
         h?: number;
+        x?: number;
+        y?: number;
     }, fromPeer = false) {
         const defaultW = type === "text" ? 300 : 200;
         const defaultH = type === "text" ? 160 : 200;
         const finalW = w ?? defaultW;
         const finalH = h ?? defaultH;
-        const pos = this.getRandomPosition(finalW, finalH);
+        const pos = (x !== undefined && y !== undefined)
+            ? { x, y }
+            : this.getRandomPosition(finalW, finalH);
 
         const newItem: ClipboardItem = {
             id: crypto.randomUUID(),
@@ -565,6 +571,36 @@ class DesktopState {
         }
     }
 
+    updateItemFontSize(id: string, fontSize: number, fromPeer = false) {
+        const clamped = Math.min(36, Math.max(11, fontSize));
+        const found = this.findItemAcrossWorkspaces(id);
+        if (found && found.item.type === "text") {
+            found.item.fontSize = clamped;
+        }
+        if (!fromPeer) {
+            this.broadcastToClients({ type: "update-fontsize", id, fontSize: clamped });
+        }
+    }
+
+    async downloadImageItem(item: ClipboardItem) {
+        if (!item) return;
+        const defaultName = item.name || `imagen-${item.id.slice(0, 6)}.png`;
+        try {
+            const src = item.downloadUrl || item.content;
+            if (!src) return;
+            const res = await fetch(src);
+            const blob = await res.blob();
+            await this.triggerDownload(blob, defaultName);
+        } catch (err) {
+            console.error("Error descargando imagen con fetch, usando fallback:", err);
+            const a = document.createElement("a");
+            a.href = item.downloadUrl || item.content;
+            a.download = defaultName;
+            a.target = "_blank";
+            a.click();
+        }
+    }
+
     async registerPeerMapping(preferredCode?: string): Promise<string> {
         return await syncService.createOrJoinHost(preferredCode);
     }
@@ -617,6 +653,11 @@ class DesktopState {
 
         if (data.type === "update-content" && data.id) {
             this.updateItemContent(data.id, data.content, true);
+            return;
+        }
+
+        if (data.type === "update-fontsize" && data.id && typeof data.fontSize === "number") {
+            this.updateItemFontSize(data.id, data.fontSize, true);
             return;
         }
 
