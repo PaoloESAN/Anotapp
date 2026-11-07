@@ -315,7 +315,7 @@
                         ondblclick={() => {
                             item.editing = true;
                         }}
-                        class="text-slate-800 dark:text-zinc-200 font-medium leading-relaxed w-full h-full overflow-y-auto pr-2 custom-scrollbar wrap-break-word select-text rounded"
+                        class="text-slate-800 dark:text-zinc-200 font-medium leading-relaxed w-full h-full overflow-y-auto pl-1 pr-2 custom-scrollbar wrap-break-word select-text rounded"
                         style="font-size: {currentFontSize}px; cursor: {item.editing
                             ? 'text'
                             : desktopState.isCtrlPressed

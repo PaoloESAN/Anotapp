@@ -753,13 +753,6 @@
                             </div>
                         {/if}
                         <CanvasControls />
-                        {#if !isMobile && !isTauri}
-                            <div class="h-10 px-4 rounded-full flex items-center bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200/80 dark:border-zinc-800/80 shadow-lg ring-1 ring-black/5 dark:ring-white/5 select-none">
-                                <span class="font-bold tracking-tight text-sm text-slate-800 dark:text-zinc-100">
-                                    Anotapp<span class="text-primary">.</span>
-                                </span>
-                            </div>
-                        {/if}
                     </div>
                     {#if interactionManager.showMinimap}
                         <CanvasMinimap />

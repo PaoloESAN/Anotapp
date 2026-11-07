@@ -52,13 +52,13 @@ export function renderMarkdown(raw: string): string {
     const flushLists = () => {
         if (listItems.length > 0) {
             htmlBlocks.push(
-                `<ul class="list-disc pl-5 space-y-0.5 my-1">${listItems.join("")}</ul>`
+                `<ul class="list-none pl-1 space-y-1 my-1">${listItems.join("")}</ul>`
             );
             listItems = [];
         }
         if (orderedListItems.length > 0) {
             htmlBlocks.push(
-                `<ol class="list-decimal pl-5 space-y-0.5 my-1">${orderedListItems.join("")}</ol>`
+                `<ol class="list-none pl-1 space-y-1 my-1">${orderedListItems.join("")}</ol>`
             );
             orderedListItems = [];
         }
@@ -131,10 +131,10 @@ export function renderMarkdown(raw: string): string {
         if (taskMatch) {
             const checked = taskMatch[1].toLowerCase() === "x";
             const checkbox = checked
-                ? '<span class="inline-flex items-center justify-center w-3.5 h-3.5 mr-1.5 rounded bg-primary text-primary-foreground text-[10px] font-bold align-middle">✓</span>'
-                : '<span class="inline-block w-3.5 h-3.5 mr-1.5 rounded border border-slate-400 dark:border-zinc-500 align-middle"></span>';
+                ? '<span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded bg-primary text-primary-foreground text-[10px] font-bold align-middle">✓</span>'
+                : '<span class="inline-block w-3.5 h-3.5 rounded border border-slate-400 dark:border-zinc-500 align-middle"></span>';
             listItems.push(
-                `<li class="list-none -ml-4 flex items-start gap-1"><span class="mt-0.5 select-none">${checkbox}</span><span class="${
+                `<li class="flex items-start gap-2"><span class="mt-1 select-none shrink-0">${checkbox}</span><span class="min-w-0 flex-1 ${
                     checked ? "line-through opacity-60" : ""
                 }">${formatInline(taskMatch[2])}</span></li>`
             );
@@ -145,15 +145,23 @@ export function renderMarkdown(raw: string): string {
         const ulMatch = line.match(/^\s*[-*+]\s+(.*)$/);
         if (ulMatch) {
             if (orderedListItems.length > 0) flushLists();
-            listItems.push(`<li>${formatInline(ulMatch[1])}</li>`);
+            listItems.push(
+                `<li class="flex items-start gap-2"><span class="select-none shrink-0 font-bold opacity-80">•</span><span class="min-w-0 flex-1">${formatInline(
+                    ulMatch[1]
+                )}</span></li>`
+            );
             continue;
         }
 
         // Ordered list: 1. item
-        const olMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+        const olMatch = line.match(/^\s*(\d+)\.\s+(.*)$/);
         if (olMatch) {
             if (listItems.length > 0) flushLists();
-            orderedListItems.push(`<li>${formatInline(olMatch[1])}</li>`);
+            orderedListItems.push(
+                `<li class="flex items-start gap-1.5"><span class="select-none shrink-0 font-semibold opacity-80">${olMatch[1]}.</span><span class="min-w-0 flex-1">${formatInline(
+                    olMatch[2]
+                )}</span></li>`
+            );
             continue;
         }
 
