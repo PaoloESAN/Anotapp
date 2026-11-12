@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Anotapp",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "identifier": "com.anotapp.dev",
   "build": {
     "frontendDist": "../build",
@@ -22,7 +22,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**"]
+      }
     }
   },
   "bundle": {

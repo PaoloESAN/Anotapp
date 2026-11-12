@@ -10,10 +10,24 @@
     let unlistenMove: (() => void) | null = null;
     let moveSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+    async function setImageFromPath(filePath: string | null) {
+        if (!filePath) {
+            imageUrl = null;
+            return;
+        }
+        try {
+            const { convertFileSrc } = await import("@tauri-apps/api/core");
+            imageUrl = convertFileSrc(filePath);
+        } catch (err) {
+            console.error("Error converting mascot path:", err);
+        }
+    }
+
     async function loadMascotImage() {
         try {
             const { invoke } = await import("@tauri-apps/api/core");
-            imageUrl = await invoke<string | null>("get_mascot_image");
+            const path = await invoke<string | null>("get_mascot_file");
+            await setImageFromPath(path);
         } catch (err) {
             console.error("Error loading mascot image:", err);
         }
@@ -36,8 +50,12 @@
             const { listen } = await import("@tauri-apps/api/event");
             const { getCurrentWindow } = await import("@tauri-apps/api/window");
 
-            unlistenImage = await listen("mascot-image-updated", () => {
-                loadMascotImage();
+            unlistenImage = await listen<string | null>("mascot-image-updated", (event) => {
+                if (typeof event.payload === "string" || event.payload === null) {
+                    setImageFromPath(event.payload);
+                } else {
+                    loadMascotImage();
+                }
             });
 
             unlistenOpacity = await listen<number>("mascot-opacity-updated", (event) => {

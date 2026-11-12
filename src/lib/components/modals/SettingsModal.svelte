@@ -29,7 +29,6 @@
     let currentColor = $state("oklch(0.546 0.245 262.881)");
     let themeMode = $state("system");
     let fileInputRef: HTMLInputElement;
-    let mascotInputRef: HTMLInputElement | undefined = $state();
 
     // Mascot state (Desktop Tauri only)
     let isTauri = $state(false);
@@ -54,9 +53,10 @@
             if (!Number.isNaN(savedOp)) mascotOpacity = Math.min(100, Math.max(20, savedOp));
 
             try {
-                const { invoke } = await import("@tauri-apps/api/core");
+                const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
                 const { listen } = await import("@tauri-apps/api/event");
-                mascotPreviewUrl = await invoke<string | null>("get_mascot_image");
+                const filePath = await invoke<string | null>("get_mascot_file");
+                mascotPreviewUrl = filePath ? convertFileSrc(filePath) : null;
                 unlistenMascotClose = await listen("mascot-closed-by-user", () => {
                     mascotEnabled = false;
                 });
@@ -97,27 +97,32 @@
         }
     }
 
-    async function handleMascotImageUpload(e: Event) {
-        const input = e.target as HTMLInputElement;
-        if (!input.files || input.files.length === 0) return;
-        const file = input.files[0];
-        const reader = new FileReader();
-        reader.onload = async (ev) => {
-            const dataUrl = ev.target?.result as string;
-            if (!dataUrl) return;
-            try {
-                const { invoke } = await import("@tauri-apps/api/core");
-                await invoke("save_mascot_image", { dataUrl });
-                mascotPreviewUrl = dataUrl;
-                if (!mascotEnabled) {
-                    await toggleMascot(true);
-                }
-            } catch (err) {
-                console.error("Error saving mascot image:", err);
+    async function handlePickMascotImage() {
+        if (!isTauri) return;
+        try {
+            const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
+            const selected = await openDialog({
+                multiple: false,
+                filters: [
+                    {
+                        name: "Imágenes y GIFs",
+                        extensions: ["png", "jpg", "jpeg", "gif", "webp"],
+                    },
+                ],
+            });
+            if (!selected || typeof selected !== "string") return;
+
+            const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
+            const savedPath = await invoke<string>("save_mascot_file", {
+                sourcePath: selected,
+            });
+            mascotPreviewUrl = convertFileSrc(savedPath);
+            if (!mascotEnabled) {
+                await toggleMascot(true);
             }
-        };
-        reader.readAsDataURL(file);
-        input.value = "";
+        } catch (err) {
+            console.error("Error picking/saving mascot image:", err);
+        }
     }
 
     async function handleClearMascotImage() {
@@ -581,7 +586,7 @@
                                     <Button
                                         variant="secondary"
                                         class="w-full justify-center gap-2 rounded-xl"
-                                        onclick={() => mascotInputRef?.click()}
+                                        onclick={handlePickMascotImage}
                                     >
                                         <ImagePlus class="w-4 h-4" />
                                         {mascotPreviewUrl ? "Cambiar imagen / GIF" : "Elegir imagen / GIF"}
@@ -631,13 +636,6 @@
             </Tabs.Root>
 
             <!-- Inputs ocultos -->
-            <input
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                class="hidden"
-                bind:this={mascotInputRef}
-                onchange={handleMascotImageUpload}
-            />
             <input
                 type="file"
                 id="hidden-bg-upload"

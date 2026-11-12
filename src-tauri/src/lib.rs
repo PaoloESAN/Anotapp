@@ -1,8 +1,9 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
-fn mascot_image_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
@@ -10,44 +11,85 @@ fn mascot_image_path(app: &AppHandle) -> Result<PathBuf, String> {
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| format!("Failed to create app data dir: {}", e))?;
     }
-    Ok(dir.join("mascot_image.txt"))
+    Ok(dir)
+}
+
+fn cleanup_old_mascots(dir: &Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with("mascot_") && name_str != "mascot_current.txt" {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 #[tauri::command]
-fn save_mascot_image(app: AppHandle, data_url: String) -> Result<(), String> {
-    let path = mascot_image_path(&app)?;
-    fs::write(&path, data_url).map_err(|e| format!("Failed to write mascot image: {}", e))?;
-    let _ = app.emit("mascot-image-updated", ());
-    Ok(())
+async fn save_mascot_file(app: AppHandle, source_path: String) -> Result<String, String> {
+    let dir = app_data_dir(&app)?;
+    let src = Path::new(&source_path);
+    if !src.exists() {
+        return Err("El archivo seleccionado no existe".to_string());
+    }
+
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp"))
+        .unwrap_or_else(|| "png".to_string());
+
+    cleanup_old_mascots(&dir);
+
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dest = dir.join(format!("mascot_{}.{}", ts, ext));
+
+    fs::copy(src, &dest).map_err(|e| format!("No se pudo copiar la imagen: {}", e))?;
+
+    let dest_str = dest.to_string_lossy().to_string();
+    fs::write(dir.join("mascot_current.txt"), &dest_str)
+        .map_err(|e| format!("No se pudo guardar la referencia: {}", e))?;
+
+    let _ = app.emit("mascot-image-updated", Some(dest_str.clone()));
+    Ok(dest_str)
 }
 
 #[tauri::command]
-fn get_mascot_image(app: AppHandle) -> Result<Option<String>, String> {
-    let path = mascot_image_path(&app)?;
-    if !path.exists() {
+async fn get_mascot_file(app: AppHandle) -> Result<Option<String>, String> {
+    let dir = app_data_dir(&app)?;
+    let marker = dir.join("mascot_current.txt");
+    if !marker.exists() {
         return Ok(None);
     }
-    let content =
-        fs::read_to_string(&path).map_err(|e| format!("Failed to read mascot image: {}", e))?;
-    if content.trim().is_empty() {
+    let path_str = fs::read_to_string(&marker)
+        .map_err(|e| format!("Failed to read mascot marker: {}", e))?;
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() || !Path::new(trimmed).exists() {
         Ok(None)
     } else {
-        Ok(Some(content))
+        Ok(Some(trimmed.to_string()))
     }
 }
 
 #[tauri::command]
-fn clear_mascot_image(app: AppHandle) -> Result<(), String> {
-    let path = mascot_image_path(&app)?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("Failed to remove mascot image: {}", e))?;
+async fn clear_mascot_image(app: AppHandle) -> Result<(), String> {
+    let dir = app_data_dir(&app)?;
+    cleanup_old_mascots(&dir);
+    let marker = dir.join("mascot_current.txt");
+    if marker.exists() {
+        let _ = fs::remove_file(marker);
     }
-    let _ = app.emit("mascot-image-updated", ());
+    let _ = app.emit("mascot-image-updated", Option::<String>::None);
     Ok(())
 }
 
 #[tauri::command]
-fn open_mascot_window(
+async fn open_mascot_window(
     app: AppHandle,
     size: Option<f64>,
     x: Option<f64>,
@@ -84,7 +126,7 @@ fn open_mascot_window(
 }
 
 #[tauri::command]
-fn close_mascot_window(app: AppHandle) -> Result<(), String> {
+async fn close_mascot_window(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("mascot") {
         win.close()
             .map_err(|e| format!("Failed to close mascot window: {}", e))?;
@@ -93,7 +135,7 @@ fn close_mascot_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_mascot_size(app: AppHandle, size: f64) -> Result<(), String> {
+async fn set_mascot_size(app: AppHandle, size: f64) -> Result<(), String> {
     let win_size = size.clamp(64.0, 400.0);
     if let Some(win) = app.get_webview_window("mascot") {
         win.set_size(LogicalSize::new(win_size, win_size))
@@ -103,7 +145,7 @@ fn set_mascot_size(app: AppHandle, size: f64) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_mascot_opacity(app: AppHandle, opacity: f64) -> Result<(), String> {
+async fn set_mascot_opacity(app: AppHandle, opacity: f64) -> Result<(), String> {
     let clamped = opacity.clamp(0.2, 1.0);
     let _ = app.emit("mascot-opacity-updated", clamped);
     Ok(())
@@ -116,8 +158,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard::init())
         .invoke_handler(tauri::generate_handler![
-            save_mascot_image,
-            get_mascot_image,
+            save_mascot_file,
+            get_mascot_file,
             clear_mascot_image,
             open_mascot_window,
             close_mascot_window,
