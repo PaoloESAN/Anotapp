@@ -15,6 +15,16 @@
 				"oklch(0.546 0.245 262.881)",
 			);
 		}
+
+		if (
+			typeof navigator !== "undefined" &&
+			"serviceWorker" in navigator &&
+			!("__TAURI_INTERNALS__" in window)
+		) {
+			navigator.serviceWorker.register("/service-worker.js").catch((err) => {
+				console.error("Error registering service worker:", err);
+			});
+		}
 	});
 
 	async function handleKeydown(e: KeyboardEvent) {
