@@ -2,11 +2,14 @@
     import Check from "@lucide/svelte/icons/check";
     import Download from "@lucide/svelte/icons/download";
     import Upload from "@lucide/svelte/icons/upload";
+    import Sparkles from "@lucide/svelte/icons/sparkles";
+    import Trash2 from "@lucide/svelte/icons/trash-2";
+    import ImagePlus from "@lucide/svelte/icons/image-plus";
     import * as Dialog from "$lib/components/ui/dialog/index.js";
     import * as Tabs from "$lib/components/ui/tabs/index.js";
     import { Button } from "$lib/components/ui/button/index.js";
     import { setMode, resetMode } from "mode-watcher";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { Switch } from "$lib/components/ui/switch/index.js";
     import { Label } from "$lib/components/ui/label/index.js";
     import { desktopState } from "../../../routes/desktop-state.svelte";
@@ -26,13 +29,135 @@
     let currentColor = $state("oklch(0.546 0.245 262.881)");
     let themeMode = $state("system");
     let fileInputRef: HTMLInputElement;
+    let mascotInputRef: HTMLInputElement | undefined = $state();
 
-    onMount(() => {
+    // Mascot state (Desktop Tauri only)
+    let isTauri = $state(false);
+    let mascotEnabled = $state(false);
+    let mascotSize = $state(160);
+    let mascotOpacity = $state(100);
+    let mascotPreviewUrl = $state<string | null>(null);
+    let unlistenMascotClose: (() => void) | null = null;
+
+    onMount(async () => {
         const savedColor = localStorage.getItem("anotapp-primary-color");
         if (savedColor) currentColor = savedColor;
         const savedMode = localStorage.getItem("mode-watcher-mode");
         if (savedMode) themeMode = savedMode;
+
+        isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+        if (isTauri) {
+            mascotEnabled = localStorage.getItem("anotapp-mascot-enabled") === "true";
+            const savedSize = parseInt(localStorage.getItem("anotapp-mascot-size") || "160", 10);
+            if (!Number.isNaN(savedSize)) mascotSize = Math.min(300, Math.max(80, savedSize));
+            const savedOp = parseInt(localStorage.getItem("anotapp-mascot-opacity-pct") || "100", 10);
+            if (!Number.isNaN(savedOp)) mascotOpacity = Math.min(100, Math.max(20, savedOp));
+
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                const { listen } = await import("@tauri-apps/api/event");
+                mascotPreviewUrl = await invoke<string | null>("get_mascot_image");
+                unlistenMascotClose = await listen("mascot-closed-by-user", () => {
+                    mascotEnabled = false;
+                });
+            } catch (err) {
+                console.error("Error loading mascot settings:", err);
+            }
+        }
     });
+
+    onDestroy(() => {
+        unlistenMascotClose?.();
+    });
+
+    async function toggleMascot(next: boolean) {
+        if (!isTauri) return;
+        mascotEnabled = next;
+        localStorage.setItem("anotapp-mascot-enabled", String(next));
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            if (next) {
+                let pos: { x?: number; y?: number } = {};
+                try {
+                    const savedPos = localStorage.getItem("anotapp-mascot-pos");
+                    if (savedPos) pos = JSON.parse(savedPos);
+                } catch {
+                    // ignore
+                }
+                await invoke("open_mascot_window", {
+                    size: mascotSize,
+                    x: typeof pos.x === "number" ? pos.x : null,
+                    y: typeof pos.y === "number" ? pos.y : null,
+                });
+            } else {
+                await invoke("close_mascot_window");
+            }
+        } catch (err) {
+            console.error("Error toggling mascot window:", err);
+        }
+    }
+
+    async function handleMascotImageUpload(e: Event) {
+        const input = e.target as HTMLInputElement;
+        if (!input.files || input.files.length === 0) return;
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+            const dataUrl = ev.target?.result as string;
+            if (!dataUrl) return;
+            try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                await invoke("save_mascot_image", { dataUrl });
+                mascotPreviewUrl = dataUrl;
+                if (!mascotEnabled) {
+                    await toggleMascot(true);
+                }
+            } catch (err) {
+                console.error("Error saving mascot image:", err);
+            }
+        };
+        reader.readAsDataURL(file);
+        input.value = "";
+    }
+
+    async function handleClearMascotImage() {
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("clear_mascot_image");
+            mascotPreviewUrl = null;
+            if (mascotEnabled) {
+                await toggleMascot(false);
+            }
+        } catch (err) {
+            console.error("Error clearing mascot image:", err);
+        }
+    }
+
+    async function handleMascotSizeChange(val: number) {
+        mascotSize = val;
+        localStorage.setItem("anotapp-mascot-size", String(val));
+        if (!isTauri || !mascotEnabled) return;
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("set_mascot_size", { size: val });
+        } catch (err) {
+            console.error("Error resizing mascot:", err);
+        }
+    }
+
+    async function handleMascotOpacityChange(val: number) {
+        mascotOpacity = val;
+        const normalized = val / 100;
+        localStorage.setItem("anotapp-mascot-opacity-pct", String(val));
+        localStorage.setItem("anotapp-mascot-opacity", String(normalized));
+        if (!isTauri || !mascotEnabled) return;
+        try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            await invoke("set_mascot_opacity", { opacity: normalized });
+        } catch (err) {
+            console.error("Error changing mascot opacity:", err);
+        }
+    }
 
     let colors = [
         {
@@ -162,7 +287,7 @@
         <div class="flex-1 overflow-y-auto custom-scrollbar p-6 pt-2">
             <Tabs.Root value="appearance" class="w-full">
                 <Tabs.List
-                    class="grid w-full grid-cols-3 mb-6 bg-muted/50 p-1 rounded-xl"
+                    class="grid w-full {isTauri ? 'grid-cols-4' : 'grid-cols-3'} mb-6 bg-muted/50 p-1 rounded-xl"
                 >
                     <Tabs.Trigger
                         value="appearance"
@@ -179,6 +304,13 @@
                         class="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm text-xs sm:text-sm"
                         >Datos</Tabs.Trigger
                     >
+                    {#if isTauri}
+                        <Tabs.Trigger
+                            value="mascot"
+                            class="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm text-xs sm:text-sm"
+                            >Mascota</Tabs.Trigger
+                        >
+                    {/if}
                 </Tabs.List>
 
                 <!-- Pestaña Apariencia -->
@@ -384,9 +516,128 @@
                         </div>
                     </div>
                 </Tabs.Content>
+
+                {#if isTauri}
+                    <!-- Pestaña Mascota (Solo Escritorio) -->
+                    <Tabs.Content
+                        value="mascot"
+                        class="space-y-5 animate-in fade-in-50 slide-in-from-bottom-2 duration-300"
+                    >
+                        <div
+                            class="flex items-center justify-between gap-4 bg-muted/30 p-5 rounded-2xl border border-border/50 shadow-sm"
+                        >
+                            <div class="space-y-1">
+                                <Label
+                                    class="text-base font-semibold text-foreground flex items-center gap-2"
+                                >
+                                    <Sparkles class="w-4 h-4 text-primary" />
+                                    Mascota Flotante
+                                </Label>
+                                <p class="text-sm text-muted-foreground">
+                                    Muestra una imagen o GIF flotante siempre por encima de todas las ventanas. Puedes arrastrarla libremente.
+                                </p>
+                            </div>
+                            <Switch
+                                checked={mascotEnabled}
+                                onCheckedChange={(val) => toggleMascot(val)}
+                            />
+                        </div>
+
+                        <div
+                            class="rounded-2xl border border-border/50 bg-muted/20 p-5 space-y-4"
+                        >
+                            <div class="flex items-center justify-between">
+                                <Label class="text-sm font-semibold uppercase tracking-wide text-foreground">
+                                    Imagen (PNG, JPG, GIF)
+                                </Label>
+                                {#if mascotPreviewUrl}
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onclick={handleClearMascotImage}
+                                        class="h-8 px-2.5 text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                                    >
+                                        <Trash2 class="w-3.5 h-3.5" />
+                                        Quitar
+                                    </Button>
+                                {/if}
+                            </div>
+
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-20 h-20 rounded-2xl border border-border/60 bg-muted/40 flex items-center justify-center overflow-hidden shrink-0"
+                                >
+                                    {#if mascotPreviewUrl}
+                                        <img
+                                            src={mascotPreviewUrl}
+                                            alt="Vista previa mascota"
+                                            class="w-full h-full object-contain"
+                                        />
+                                    {:else}
+                                        <ImagePlus class="w-7 h-7 text-muted-foreground/60" />
+                                    {/if}
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <Button
+                                        variant="secondary"
+                                        class="w-full justify-center gap-2 rounded-xl"
+                                        onclick={() => mascotInputRef?.click()}
+                                    >
+                                        <ImagePlus class="w-4 h-4" />
+                                        {mascotPreviewUrl ? "Cambiar imagen / GIF" : "Elegir imagen / GIF"}
+                                    </Button>
+                                    <p class="text-xs text-muted-foreground">
+                                        Soporta PNG transparente, GIF animado, JPG y WebP.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-border/50 bg-muted/20 p-5 space-y-4">
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <Label class="text-sm font-semibold text-foreground">Tamaño</Label>
+                                    <span class="text-xs font-mono text-muted-foreground">{mascotSize} px</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="80"
+                                    max="300"
+                                    step="10"
+                                    value={mascotSize}
+                                    oninput={(e) => handleMascotSizeChange(parseInt((e.target as HTMLInputElement).value, 10))}
+                                    class="w-full accent-primary cursor-pointer"
+                                />
+                            </div>
+
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <Label class="text-sm font-semibold text-foreground">Opacidad</Label>
+                                    <span class="text-xs font-mono text-muted-foreground">{mascotOpacity}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="20"
+                                    max="100"
+                                    step="5"
+                                    value={mascotOpacity}
+                                    oninput={(e) => handleMascotOpacityChange(parseInt((e.target as HTMLInputElement).value, 10))}
+                                    class="w-full accent-primary cursor-pointer"
+                                />
+                            </div>
+                        </div>
+                    </Tabs.Content>
+                {/if}
             </Tabs.Root>
 
             <!-- Inputs ocultos -->
+            <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                class="hidden"
+                bind:this={mascotInputRef}
+                onchange={handleMascotImageUpload}
+            />
             <input
                 type="file"
                 id="hidden-bg-upload"

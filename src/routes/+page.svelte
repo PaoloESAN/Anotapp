@@ -254,6 +254,26 @@
 
         // Si estamos en Tauri desktop, activar listeners nativos del portapapeles
         if (isTauri) {
+            if (localStorage.getItem("anotapp-mascot-enabled") === "true") {
+                try {
+                    const { invoke } = await import("@tauri-apps/api/core");
+                    const savedSize = parseInt(localStorage.getItem("anotapp-mascot-size") || "160", 10);
+                    let pos: { x?: number; y?: number } = {};
+                    try {
+                        const savedPos = localStorage.getItem("anotapp-mascot-pos");
+                        if (savedPos) pos = JSON.parse(savedPos);
+                    } catch {
+                        // ignore
+                    }
+                    await invoke("open_mascot_window", {
+                        size: Number.isNaN(savedSize) ? 160 : savedSize,
+                        x: typeof pos.x === "number" ? pos.x : null,
+                        y: typeof pos.y === "number" ? pos.y : null,
+                    });
+                } catch (err) {
+                    console.error("Error auto-opening mascot window:", err);
+                }
+            }
             try {
                 const {
                     startListening,
@@ -590,7 +610,7 @@
                         </p>
                     </div>
                 {:else}
-                    {#each desktopState.items as item (item.id)}
+                    {#each desktopState.items as item, i (item.id)}
                         <div class="w-full bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-2xl p-4 border border-slate-200/80 dark:border-zinc-800/80 shadow-xs flex flex-col gap-2 transition-all">
                             <!-- Card Header -->
                             <div class="flex items-center justify-between text-xs text-slate-400 dark:text-zinc-500 pb-1 border-b border-slate-100 dark:border-zinc-800/50">
@@ -598,6 +618,27 @@
                                     {item.type === "text" ? "Nota de texto" : item.type === "image" ? "Imagen" : "Archivo"}
                                 </span>
                                 <div class="flex items-center gap-1">
+                                    {#if item.type === "text"}
+                                        <button
+                                            onpointerdown={(e) => e.preventDefault()}
+                                            onclick={() => {
+                                                if (desktopState.items[i].editing) {
+                                                    desktopState.items[i].editing = false;
+                                                    desktopState.updateItemContent(item.id, desktopState.items[i].content);
+                                                } else {
+                                                    desktopState.items[i].editing = true;
+                                                }
+                                            }}
+                                            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 {item.editing ? 'text-green-500' : 'text-slate-600 dark:text-zinc-400'} transition-colors"
+                                            title={item.editing ? "Guardar cambios" : "Editar nota"}
+                                        >
+                                            {#if item.editing}
+                                                <Check class="w-3.5 h-3.5" />
+                                            {:else}
+                                                <Pen class="w-3.5 h-3.5" />
+                                            {/if}
+                                        </button>
+                                    {/if}
                                     <button
                                         onclick={() => onCopy(item)}
                                         class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors"
@@ -637,12 +678,36 @@
 
                             <!-- Card Body -->
                             {#if item.type === "text"}
-                                <div
-                                    class="font-sans break-words leading-relaxed text-slate-800 dark:text-zinc-100 max-h-48 overflow-y-auto"
-                                    style="font-size: {item.fontSize || 13}px;"
-                                >
-                                    {@html renderMarkdown(item.content)}
-                                </div>
+                                {#if item.editing}
+                                    <textarea
+                                        {@attach (el) => {
+                                            el.focus();
+                                            const len = el.value.length;
+                                            el.setSelectionRange(len, len);
+                                        }}
+                                        bind:value={desktopState.items[i].content}
+                                        placeholder="Escribe aquí (soporta **Markdown**)..."
+                                        onblur={() => {
+                                            desktopState.items[i].editing = false;
+                                            desktopState.updateItemContent(item.id, desktopState.items[i].content);
+                                        }}
+                                        onkeydown={(e) => {
+                                            if (e.key === "Escape") {
+                                                desktopState.items[i].editing = false;
+                                                desktopState.updateItemContent(item.id, desktopState.items[i].content);
+                                            }
+                                        }}
+                                        class="w-full min-h-[110px] max-h-60 bg-slate-50/70 dark:bg-zinc-950/70 rounded-xl p-2.5 text-slate-800 dark:text-zinc-100 leading-relaxed resize-y outline-none ring-1 ring-primary/50 custom-scrollbar break-words"
+                                        style="font-size: {item.fontSize || 13}px;"
+                                    ></textarea>
+                                {:else}
+                                    <div
+                                        class="font-sans break-words leading-relaxed text-slate-800 dark:text-zinc-100 max-h-48 overflow-y-auto"
+                                        style="font-size: {item.fontSize || 13}px;"
+                                    >
+                                        {@html renderMarkdown(item.content)}
+                                    </div>
+                                {/if}
                             {:else if item.type === "image"}
                                 <div class="w-full rounded-xl overflow-hidden bg-slate-100 dark:bg-zinc-950 flex items-center justify-center border border-slate-200/50 dark:border-zinc-800/50">
                                     <img
